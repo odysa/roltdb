@@ -1,4 +1,9 @@
+mod bucket;
+mod data;
 mod error;
+mod free_list;
+mod meta;
+mod node;
 mod page;
 
 #[cfg(test)]
