@@ -1,19 +1,45 @@
+use std::{cell::RefCell, rc::Weak};
+
 use crate::{
+    bucket::Bucket,
     data::Entry,
+    error::Result,
     page::{Page, PageId},
 };
 
 type NodeId = u64;
-struct Node {
-    children: Vec<NodeId>,
+#[derive(Default)]
+pub(crate) struct Node {
+    bucket: Option<*const Bucket>,
     page_id: PageId,
     unbalanced: bool,
     spilled: bool,
     inodes: Vec<Inode>,
+    children: Vec<NodeId>,
+    parent: RefCell<Weak<Node>>,
+    node_type: NodeType,
 }
 
 impl Node {
-    pub fn from_page(&self, p: &Page) -> Node {
+    pub fn default() -> Node {
+        Node {
+            ..Default::default()
+        }
+    }
+    pub fn num_children(&self) -> usize {
+        self.children.len()
+    }
+    fn split(&mut self) {}
+    // split a node into two nodes
+    fn break_up(&mut self) -> Result<Option<Node>> {
+        let mut new_node = Node::default();
+        new_node.node_type = NodeType::Leaf;
+        let nodes: Vec<Inode> = self.inodes.drain(0..).collect();
+        new_node.inodes = nodes;
+
+        Ok(Some(new_node))
+    }
+    pub fn from_page(&self, bucket: Option<*const Bucket>, p: &Page) -> Node {
         let inodes: Vec<Inode> = match p.page_type {
             Page::BRANCH_PAGE => {
                 let mut inodes: Vec<Inode> = Vec::with_capacity(p.count as usize);
@@ -52,13 +78,22 @@ impl Node {
         Node {
             children: Vec::new(),
             page_id: p.id,
-            unbalanced: false,
-            spilled: false,
             inodes,
+            bucket,
+            ..Default::default()
         }
     }
 }
 
+enum NodeType {
+    Branch,
+    Leaf,
+}
+impl Default for NodeType {
+    fn default() -> Self {
+        NodeType::Leaf
+    }
+}
 enum Inode {
     Branch(BranchINode),
     Leaf(LeafINode),
