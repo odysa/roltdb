@@ -1,17 +1,20 @@
 use crate::page::PageId;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 struct FreeList {
-    ids: Vec<PageId>,
     pending: BTreeMap<u64, Vec<PageId>>,
-    free_pages: BTreeMap<PageId, bool>, // in-memory look up
+    free_pages: BTreeSet<PageId>, // in-memory look up
 }
 
 impl FreeList {
     pub fn new() -> FreeList {
         FreeList {
             pending: BTreeMap::new(),
-            ids: Vec::new(),
-            free_pages: BTreeMap::new(),
+            free_pages: BTreeSet::new(),
+        }
+    }
+    pub fn init(&mut self, free_pages: &[PageId]) {
+        for id in free_pages {
+            self.free_pages.insert(*id);
         }
     }
 }

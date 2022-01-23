@@ -5,7 +5,7 @@ mod free_list;
 mod meta;
 mod node;
 mod page;
-
+mod transaction;
 #[cfg(test)]
 mod tests {
     #[test]
