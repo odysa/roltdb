@@ -6,6 +6,8 @@ mod meta;
 mod node;
 mod page;
 mod transaction;
+mod cursor;
+mod utils;
 #[cfg(test)]
 mod tests {
     #[test]

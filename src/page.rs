@@ -12,7 +12,7 @@ pub struct Page {
     pub(crate) count: u16,
     overflow: u32,
     pub(crate) id: PageId,
-    ptr: usize,
+    ptr: u8,
     pub(crate) page_type: PageType,
 }
 
@@ -29,6 +29,9 @@ impl Page {
             ptr: 0,
             page_type: 0x1,
         }
+    }
+    pub fn ptr_mut(&mut self) -> &mut u8 {
+        &mut self.ptr
     }
     // dereference meta data
     pub fn meta(&self) -> Result<&Meta> {
@@ -50,6 +53,15 @@ impl Page {
             },
         }
     }
+
+    pub fn free_list_mut(&self) -> Result<&mut [PageId]> {
+        unsafe{
+        let list = self.free_list()?;
+        let list = list as *const [PageId] as *mut [PageId];
+        Ok(&mut *list)
+        }
+    }
+
     pub fn branch_elements(&self) -> Result<&[BranchPageElement]> {
         match self.page_type {
             Page::BRANCH_PAGE => Err(Error::InvalidPageType),

@@ -101,6 +101,7 @@ impl FreeList {
         for list in self.pending.values() {
             ids.extend_from_slice(list);
         }
+        ids.sort_unstable();
         ids
     }
 }

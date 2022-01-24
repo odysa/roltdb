@@ -1,5 +1,4 @@
 use fnv::FnvHasher;
-use sha3::{Digest, Sha3_256};
 use std::{hash::Hasher, intrinsics::copy_nonoverlapping, mem::size_of, slice::from_raw_parts};
 
 use crate::{
@@ -40,7 +39,7 @@ impl Meta {
         Ok(())
     }
     fn sum64(&self) -> u64 {
-        let hash = FnvHasher::default();
+        let mut hash = FnvHasher::default();
         let buf: &[u8] = unsafe {
             from_raw_parts(
                 self as *const Self as *const u8,
