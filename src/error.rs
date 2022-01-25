@@ -6,6 +6,8 @@ pub enum Error {
     InvalidPageType,
     TxNotValid,
     PageEmpty,
+    InodeOverFlow,
+    InvalidInode,
 }
 
 impl Error {
@@ -14,6 +16,8 @@ impl Error {
             Error::InvalidPageType => "page type is not correct",
             Error::TxNotValid => "tx is not valid",
             Error::PageEmpty => "page is empty",
+            Error::InodeOverFlow => "inode overflow",
+            Error::InvalidInode => "inode is not valid type",
         }
     }
 }

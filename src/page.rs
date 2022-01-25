@@ -10,7 +10,7 @@ pub type PageId = u64;
 #[repr(C)]
 pub struct Page {
     pub(crate) count: u16,
-    overflow: u32,
+    pub(crate) overflow: u32,
     pub(crate) id: PageId,
     ptr: u8,
     pub(crate) page_type: PageType,
@@ -74,7 +74,7 @@ impl Page {
             },
         }
     }
-    pub fn branch_elements_mut(&self) -> Result<&[BranchPageElement]> {
+    pub fn branch_elements_mut(&self) -> Result<&mut [BranchPageElement]> {
         unsafe {
             let elem = self.branch_elements()?;
             let elem = elem as *const [BranchPageElement] as *mut [BranchPageElement];
@@ -90,7 +90,7 @@ impl Page {
             },
         }
     }
-    pub fn leaf_elements_mut(&self) -> Result<&[LeafPageElement]> {
+    pub fn leaf_elements_mut(&self) -> Result<&mut [LeafPageElement]> {
         unsafe {
             let elem = self.leaf_elements()?;
             let elem = elem as *const [LeafPageElement] as *mut [LeafPageElement];

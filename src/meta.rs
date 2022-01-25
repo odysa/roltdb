@@ -19,8 +19,23 @@ pub struct Meta {
 
     check_sum: u64,
 }
-
+impl Default for Meta {
+    fn default() -> Self {
+        Self {
+            free_list: 0,
+            page_id: 0,
+            tx_id: 0,
+            check_sum: 0,
+            root: IBucket::new(),
+            magic_number: Meta::MAGIC,
+            version: Meta::VERSION,
+            page_size: page_size::get() as u32,
+        }
+    }
+}
 impl Meta {
+    const MAGIC: u32 = 0xF0F43F;
+    const VERSION: u32 = 1;
     const META_SIZE: usize = size_of::<Self>();
     const SUM_SIZE: usize = size_of::<u64>();
     // write meta to the given page

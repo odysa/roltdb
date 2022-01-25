@@ -11,11 +11,11 @@ use crate::{
 
 type NodeId = u64;
 #[derive(Default)]
-pub struct Node(pub Arc<InnerNode>);
+pub struct Node(pub(crate) Arc<RefCell<InnerNode>>);
 
 #[derive(Default)]
 pub(crate) struct InnerNode {
-    bucket: Option<*const Bucket>,
+    bucket: Option<Bucket>,
     page_id: PageId,
     unbalanced: bool,
     spilled: bool,
@@ -33,7 +33,7 @@ impl Node {
         }
     }
     pub fn num_children(&self) -> usize {
-        self.0.children.len()
+        self.0.borrow().children.len()
     }
     fn split(&mut self) {}
     // split a node into two nodes
@@ -41,8 +41,10 @@ impl Node {
         let mut new_node = Node::default();
         Ok(Some(new_node))
     }
+
+    // read page to node
     pub fn read(&mut self, p: &Page) -> Result<()> {
-        let mut node = self.0;
+        let mut node = self.0.borrow_mut();
         let count = p.count as usize;
         node.inodes = match node.node_type {
             NodeType::Branch => p
@@ -74,13 +76,14 @@ impl Node {
         };
         Ok(())
     }
+    // write node to page
     pub fn write(&self, p: &mut Page) -> Result<()> {
-        let node = self.0;
+        let mut node = self.0.borrow_mut();
         p.page_type = match node.node_type {
             NodeType::Branch => Page::BRANCH_PAGE,
             NodeType::Leaf => Page::LEAF_PAGE,
         };
-        let inodes = node.inodes;
+        let inodes = &mut node.inodes;
         if inodes.len() > u16::MAX as usize {
             return Err(Error::InodeOverFlow);
         }
@@ -96,7 +99,7 @@ impl Node {
         };
         match node.node_type {
             NodeType::Branch => {
-                let mut branches = p.branch_elements_mut()?;
+                let branches = p.branch_elements_mut()?;
                 for (i, inode) in node.inodes.iter().enumerate() {
                     let elem = &mut branches[i];
                     let ptr = elem as *const BranchPageElement as *const u8;
@@ -111,8 +114,8 @@ impl Node {
                 }
             }
             NodeType::Leaf => {
-                let mut leaves = p.leaf_elements_mut()?;
-                for (i, inode) in node.inodes.into_iter().enumerate() {
+                let leaves = p.leaf_elements_mut()?;
+                for (i, inode) in node.inodes.iter().enumerate() {
                     let elem = &mut leaves[i];
                     let ptr = elem as *const LeafPageElement as *const u8;
                     elem.pos = unsafe { addr.sub(ptr as usize) } as u32;
@@ -132,7 +135,7 @@ impl Node {
         Ok(())
     }
     fn page_elem_size(&self) -> usize {
-        match self.0.node_type {
+        match self.0.borrow().node_type {
             NodeType::Branch => BranchPageElement::SIZE,
             NodeType::Leaf => LeafPageElement::SIZE,
         }
@@ -151,21 +154,21 @@ impl Default for NodeType {
 struct Inode(Either<BranchINode, LeafINode>);
 impl Inode {
     pub(crate) fn key(&self) -> &Vec<u8> {
-        match self.0 {
+        match &self.0 {
             Either::Left(b) => &b.key,
             Either::Right(l) => &l.key,
         }
     }
     pub(crate) fn value(&self) -> Option<&Vec<u8>> {
-        match self.0 {
-            Either::Left(b) => None,
+        match &self.0 {
+            Either::Left(_) => None,
             Either::Right(l) => Some(&l.value),
         }
     }
     pub(crate) fn page_id(&self) -> Option<PageId> {
-        match self.0 {
+        match &self.0 {
             Either::Left(b) => Some(b.page_id),
-            Either::Right(l) => None,
+            Either::Right(_) => None,
         }
     }
 }

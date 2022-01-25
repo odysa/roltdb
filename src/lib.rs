@@ -8,6 +8,7 @@ mod page;
 mod transaction;
 mod cursor;
 mod utils;
+mod db;
 #[cfg(test)]
 mod tests {
     #[test]

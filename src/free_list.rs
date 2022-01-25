@@ -133,14 +133,14 @@ impl FreeList {
     }
 
     // rebuild cache
-    fn recache(&mut self) {
+    fn reindex(&mut self) {
         self.cache = HashSet::new();
         for id in self.free_pages.iter() {
             self.cache.insert(*id);
         }
-        for (_, pages) in self.pending {
+        for (_, pages) in &self.pending {
             for id in pages {
-                self.cache.insert(id);
+                self.cache.insert(*id);
             }
         }
     }

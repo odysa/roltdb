@@ -1,19 +1,19 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
-use crate::{bucket::Bucket, data::Entry, node::Node, page::Page};
+use crate::{bucket::Bucket, node::Node, page::Page};
 
 struct Cursor {
-    bucket: Rc<Bucket>,
+    bucket: Arc<Bucket>,
     stack: Vec<ElementRef>,
 }
 impl Cursor {
-    pub fn new(b: Rc<Bucket>) -> Self {
+    pub fn new(b: Arc<Bucket>) -> Self {
         Self {
             bucket: b,
             stack: Vec::new(),
         }
     }
-    pub fn bucket(&self) -> Rc<Bucket> {
+    pub fn bucket(&self) -> Arc<Bucket> {
         self.bucket.clone()
     }
     // pub fn first(&self) -> (Option<Entry>, Option<Entry>) {
