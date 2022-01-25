@@ -1,15 +1,20 @@
-use std::{cell::RefCell, rc::Weak};
+use std::{cell::RefCell, intrinsics::copy_nonoverlapping, rc::Weak, sync::Arc};
+
+use either::Either;
 
 use crate::{
     bucket::Bucket,
     data::Entry,
-    error::Result,
-    page::{Page, PageId},
+    error::{Error, Result},
+    page::{BranchPageElement, LeafPageElement, Page, PageId},
 };
 
 type NodeId = u64;
 #[derive(Default)]
-pub(crate) struct Node {
+pub struct Node(pub Arc<InnerNode>);
+
+#[derive(Default)]
+pub(crate) struct InnerNode {
     bucket: Option<*const Bucket>,
     page_id: PageId,
     unbalanced: bool,
@@ -18,6 +23,7 @@ pub(crate) struct Node {
     children: Vec<NodeId>,
     parent: RefCell<Weak<Node>>,
     node_type: NodeType,
+    key: Option<Entry>,
 }
 
 impl Node {
@@ -27,60 +33,108 @@ impl Node {
         }
     }
     pub fn num_children(&self) -> usize {
-        self.children.len()
+        self.0.children.len()
     }
     fn split(&mut self) {}
     // split a node into two nodes
     fn break_up(&mut self) -> Result<Option<Node>> {
         let mut new_node = Node::default();
-        new_node.node_type = NodeType::Leaf;
-        let nodes: Vec<Inode> = self.inodes.drain(0..).collect();
-        new_node.inodes = nodes;
-
         Ok(Some(new_node))
     }
-    pub fn from_page(&self, bucket: Option<*const Bucket>, p: &Page) -> Node {
-        let inodes: Vec<Inode> = match p.page_type {
-            Page::BRANCH_PAGE => {
-                let mut inodes: Vec<Inode> = Vec::with_capacity(p.count as usize);
-                match p.branch_elements() {
-                    Ok(branches) => {
-                        for branch in branches {
-                            inodes.push(Inode::Branch(BranchINode {
-                                key: Entry::from_slice(branch.key()),
-                                page_id: branch.id,
-                            }))
-                        }
-                        inodes
-                    }
-                    Err(_) => {
-                        unreachable!()
-                    }
-                }
-            }
-            Page::LEAF_PAGE => {
-                let mut inodes: Vec<Inode> = Vec::with_capacity(p.count as usize);
-                match p.leaf_elements() {
-                    Ok(leaves) => {
-                        for leaf in leaves {
-                            inodes.push(Inode::Leaf(LeafINode {
-                                key: Entry::from_slice(leaf.key()),
-                                value: Entry::from_slice(leaf.value()),
-                            }))
-                        }
-                        inodes
-                    }
-                    Err(_) => unreachable!(),
-                }
-            }
-            _ => unreachable!(),
+    pub fn read(&mut self, p: &Page) -> Result<()> {
+        let mut node = self.0;
+        let count = p.count as usize;
+        node.inodes = match node.node_type {
+            NodeType::Branch => p
+                .branch_elements()?
+                .iter()
+                .map(|b| {
+                    Inode::from(BranchINode {
+                        key: b.key().to_vec(),
+                        page_id: b.id,
+                    })
+                })
+                .collect(),
+            NodeType::Leaf => p
+                .leaf_elements()?
+                .iter()
+                .map(|f| {
+                    Inode::from(LeafINode {
+                        key: f.key().to_vec(),
+                        value: f.value().to_vec(),
+                    })
+                })
+                .collect(),
         };
-        Node {
-            children: Vec::new(),
-            page_id: p.id,
-            inodes,
-            bucket,
-            ..Default::default()
+        node.key = if !node.inodes.is_empty() {
+            let key = node.inodes[0].key().clone();
+            Some(key)
+        } else {
+            None
+        };
+        Ok(())
+    }
+    pub fn write(&self, p: &mut Page) -> Result<()> {
+        let node = self.0;
+        p.page_type = match node.node_type {
+            NodeType::Branch => Page::BRANCH_PAGE,
+            NodeType::Leaf => Page::LEAF_PAGE,
+        };
+        let inodes = node.inodes;
+        if inodes.len() > u16::MAX as usize {
+            return Err(Error::InodeOverFlow);
+        }
+        p.count = inodes.len() as u16;
+        if p.count == 0 {
+            return Ok(());
+        }
+        let mut addr = unsafe {
+            // offset to write key and value
+            // memory: element element .... key value
+            let offset = self.page_elem_size() * inodes.len();
+            p.ptr_mut().add(offset)
+        };
+        match node.node_type {
+            NodeType::Branch => {
+                let mut branches = p.branch_elements_mut()?;
+                for (i, inode) in node.inodes.iter().enumerate() {
+                    let elem = &mut branches[i];
+                    let ptr = elem as *const BranchPageElement as *const u8;
+                    elem.k_size = inode.key().len() as u32;
+                    elem.id = inode.page_id().ok_or(Error::InvalidInode)?;
+                    // offset from key to the element
+                    elem.pos = unsafe { addr.sub(ptr as usize) } as u32;
+                    unsafe {
+                        copy_nonoverlapping(inode.key().as_ptr(), addr, inode.key().len());
+                        addr = addr.add(inode.key().len());
+                    }
+                }
+            }
+            NodeType::Leaf => {
+                let mut leaves = p.leaf_elements_mut()?;
+                for (i, inode) in node.inodes.into_iter().enumerate() {
+                    let elem = &mut leaves[i];
+                    let ptr = elem as *const LeafPageElement as *const u8;
+                    elem.pos = unsafe { addr.sub(ptr as usize) } as u32;
+                    elem.k_size = inode.key().len() as u32;
+                    let value = inode.value().ok_or(Error::InvalidInode)?;
+                    elem.v_size = value.len() as u32;
+                    // write key and value
+                    unsafe {
+                        copy_nonoverlapping(inode.key().as_ptr(), addr, inode.key().len());
+                        addr = addr.add(inode.key().len());
+                        copy_nonoverlapping(value.as_ptr(), addr, value.len());
+                        addr = addr.add(value.len());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    fn page_elem_size(&self) -> usize {
+        match self.0.node_type {
+            NodeType::Branch => BranchPageElement::SIZE,
+            NodeType::Leaf => LeafPageElement::SIZE,
         }
     }
 }
@@ -94,10 +148,42 @@ impl Default for NodeType {
         NodeType::Leaf
     }
 }
-enum Inode {
-    Branch(BranchINode),
-    Leaf(LeafINode),
+struct Inode(Either<BranchINode, LeafINode>);
+impl Inode {
+    pub(crate) fn key(&self) -> &Vec<u8> {
+        match self.0 {
+            Either::Left(b) => &b.key,
+            Either::Right(l) => &l.key,
+        }
+    }
+    pub(crate) fn value(&self) -> Option<&Vec<u8>> {
+        match self.0 {
+            Either::Left(b) => None,
+            Either::Right(l) => Some(&l.value),
+        }
+    }
+    pub(crate) fn page_id(&self) -> Option<PageId> {
+        match self.0 {
+            Either::Left(b) => Some(b.page_id),
+            Either::Right(l) => None,
+        }
+    }
 }
+impl From<BranchINode> for Inode {
+    fn from(node: BranchINode) -> Self {
+        Self(Either::Left(node))
+    }
+}
+
+impl From<LeafINode> for Inode {
+    fn from(node: LeafINode) -> Self {
+        Self(Either::Right(node))
+    }
+}
+// enum Inode {
+//     Branch(BranchINode),
+//     Leaf(LeafINode),
+// }
 
 struct BranchINode {
     key: Entry,

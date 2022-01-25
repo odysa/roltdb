@@ -1,4 +1,4 @@
-use std::slice::from_raw_parts;
+use std::{mem::size_of, slice::from_raw_parts};
 
 use crate::{
     error::{Error, Result},
@@ -30,8 +30,11 @@ impl Page {
             page_type: 0x1,
         }
     }
-    pub fn ptr_mut(&mut self) -> &mut u8 {
-        &mut self.ptr
+    pub fn ptr(&self) -> *const u8 {
+        self.ptr as *const u8
+    }
+    pub fn ptr_mut(&mut self) -> *mut u8 {
+        &mut self.ptr as *mut u8
     }
     // dereference meta data
     pub fn meta(&self) -> Result<&Meta> {
@@ -55,10 +58,10 @@ impl Page {
     }
 
     pub fn free_list_mut(&self) -> Result<&mut [PageId]> {
-        unsafe{
-        let list = self.free_list()?;
-        let list = list as *const [PageId] as *mut [PageId];
-        Ok(&mut *list)
+        unsafe {
+            let list = self.free_list()?;
+            let list = list as *const [PageId] as *mut [PageId];
+            Ok(&mut *list)
         }
     }
 
@@ -71,6 +74,13 @@ impl Page {
             },
         }
     }
+    pub fn branch_elements_mut(&self) -> Result<&[BranchPageElement]> {
+        unsafe {
+            let elem = self.branch_elements()?;
+            let elem = elem as *const [BranchPageElement] as *mut [BranchPageElement];
+            Ok(&mut *elem)
+        }
+    }
     pub fn leaf_elements(&self) -> Result<&[LeafPageElement]> {
         match self.page_type {
             Page::LEAF_PAGE => Err(Error::InvalidPageType),
@@ -80,16 +90,25 @@ impl Page {
             },
         }
     }
+    pub fn leaf_elements_mut(&self) -> Result<&[LeafPageElement]> {
+        unsafe {
+            let elem = self.leaf_elements()?;
+            let elem = elem as *const [LeafPageElement] as *mut [LeafPageElement];
+            Ok(&mut *elem)
+        }
+    }
 }
 
 #[repr(C)]
 pub struct BranchPageElement {
-    pos: u64,
-    k_size: u64,
+    // offset to key
+    pub(crate) pos: u32,
+    pub(crate) k_size: u32,
     pub(crate) id: PageId,
 }
 
 impl BranchPageElement {
+    pub(crate) const SIZE: usize = size_of::<Self>();
     pub fn key(&self) -> &[u8] {
         unsafe {
             let pos = self.pos as usize;
@@ -102,12 +121,14 @@ impl BranchPageElement {
 
 #[repr(C)]
 pub struct LeafPageElement {
-    pos: u32,
-    k_size: u32,
-    v_size: u32,
+    // offset to key and value
+    pub(crate) pos: u32,
+    pub(crate) k_size: u32,
+    pub(crate) v_size: u32,
 }
 
 impl LeafPageElement {
+    pub(crate) const SIZE: usize = size_of::<Self>();
     pub fn key(&self) -> &[u8] {
         unsafe {
             let pos = self.pos as usize;
