@@ -12,9 +12,13 @@ use crate::{
     page::{Page, PageId},
 };
 
+#[derive(Debug)]
 pub struct Transaction(pub(crate) Arc<ITransaction>);
+
+#[derive(Debug)]
 pub struct WeakTransaction(pub(crate) Weak<ITransaction>);
 
+#[derive(Debug)]
 pub(crate) struct ITransaction {
     pub(crate) writable: bool,
     db: RwLock<WeakDB>,
@@ -22,7 +26,7 @@ pub(crate) struct ITransaction {
     root: RwLock<Bucket>,
     pages: RwLock<HashMap<PageId, Rc<Page>>>,
     meta: RwLock<Meta>,
-    commit_handlers: Vec<Box<dyn Fn()>>, // call functions after commit
+    // commit_handlers: Vec<Box<dyn Fn()>>, // call functions after commit
 }
 
 impl Transaction {
@@ -30,7 +34,7 @@ impl Transaction {
         Transaction(Arc::new(ITransaction {
             db: RwLock::new(db),
             managed: false,
-            commit_handlers: Vec::new(),
+            // commit_handlers: Vec::new(),
             pages: RwLock::new(HashMap::new()),
             writable,
             meta: RwLock::new(Meta::default()),

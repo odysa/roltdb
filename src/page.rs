@@ -8,6 +8,7 @@ use crate::{
 pub type PageType = u8;
 pub type PageId = u64;
 #[repr(C)]
+#[derive(Debug)]
 pub struct Page {
     pub(crate) count: u16,
     pub(crate) overflow: u32,

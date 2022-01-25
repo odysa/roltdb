@@ -10,10 +10,10 @@ use crate::{
 };
 
 type NodeId = u64;
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct Node(pub(crate) Arc<RefCell<InnerNode>>);
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct InnerNode {
     bucket: Option<Bucket>,
     page_id: PageId,
@@ -142,6 +142,8 @@ impl Node {
     }
 }
 
+
+#[derive(Debug)]
 enum NodeType {
     Branch,
     Leaf,
@@ -151,6 +153,7 @@ impl Default for NodeType {
         NodeType::Leaf
     }
 }
+#[derive(Debug)]
 struct Inode(Either<BranchINode, LeafINode>);
 impl Inode {
     pub(crate) fn key(&self) -> &Vec<u8> {
@@ -188,11 +191,13 @@ impl From<LeafINode> for Inode {
 //     Leaf(LeafINode),
 // }
 
+#[derive(Debug)]
 struct BranchINode {
     key: Entry,
     page_id: PageId,
 }
 
+#[derive(Debug)]
 struct LeafINode {
     key: Entry,
     value: Entry,

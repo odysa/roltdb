@@ -9,20 +9,25 @@ use crate::{
     transaction::WeakTransaction,
 };
 
+#[derive(Debug)]
 pub(crate) struct Bucket(pub(crate) Arc<RefCell<InnerBucket>>);
 // a collection of kev-value pairs
+#[derive(Debug)]
 pub(crate) struct InnerBucket {
     bucket: IBucket,
     // nested bucket
     buckets: HashMap<String, Bucket>,
     tx: WeakTransaction,
     fill_percent: f64,
-    root: Option<Rc<Node>>,
-    nodes: HashMap<PageId, Rc<Node>>,
+    root: Option<Node>,
+    nodes: HashMap<PageId, Node>,
     page: Option<Rc<Page>>,
 }
 
 impl Bucket {
+    pub fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
     const DEFAULT_FILL_PERCENT: f64 = 0.5;
     pub fn new(tx: WeakTransaction) -> Self {
         Self(Arc::new(RefCell::new(InnerBucket {
@@ -78,6 +83,7 @@ impl Bucket {
     }
 }
 // on-file representation of bucket
+#[derive(Debug)]
 pub(crate) struct IBucket {
     root: PageId,
     // increase monotonically
@@ -92,11 +98,11 @@ impl IBucket {
         }
     }
 }
+#[derive(Clone, Debug)]
+pub struct PageNode(Either<Rc<Page>, Node>);
 
-pub struct PageNode(Either<Rc<Page>, Rc<Node>>);
-
-impl From<Rc<Node>> for PageNode {
-    fn from(node: Rc<Node>) -> Self {
+impl From<Node> for PageNode {
+    fn from(node: Node) -> Self {
         Self(Either::Right(node))
     }
 }

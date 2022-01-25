@@ -7,6 +7,8 @@ use crate::{
     page::{Page, PageId},
     utils::struct_to_slice,
 };
+
+#[derive(Debug)]
 pub struct Meta {
     page_id: PageId,
     magic_number: u32,
@@ -19,6 +21,7 @@ pub struct Meta {
 
     check_sum: u64,
 }
+
 impl Default for Meta {
     fn default() -> Self {
         Self {
