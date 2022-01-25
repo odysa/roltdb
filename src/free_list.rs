@@ -1,9 +1,10 @@
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::page::{Page, PageId};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 struct FreeList {
     pending: BTreeMap<PageId, Vec<PageId>>,
     free_pages: BTreeSet<PageId>, // in-memory look up
+    cache: HashSet<PageId>,
 }
 
 impl FreeList {
@@ -11,11 +12,13 @@ impl FreeList {
         FreeList {
             pending: BTreeMap::new(),
             free_pages: BTreeSet::new(),
+            cache: HashSet::new(),
         }
     }
     pub fn init(&mut self, free_pages: &[PageId]) {
         for id in free_pages {
             self.free_pages.insert(*id);
+            self.cache.insert(*id);
         }
     }
     // allocate a sequence of free pages
@@ -33,6 +36,7 @@ impl FreeList {
             if id - start - 1 >= len as u64 {
                 for id in start..start + len as u64 {
                     self.free_pages.remove(&id);
+                    self.cache.remove(&id);
                 }
                 return Some(start);
             }
@@ -40,13 +44,34 @@ impl FreeList {
         }
         None
     }
+
+    // release a page for a transaction
     pub fn free(&mut self, tx_id: u64, p: &Page) -> Result<()> {
         let free_ids = self.pending.entry(tx_id).or_insert_with(Vec::new);
 
+        for id in (p.id)..(p.id + p.overflow as PageId) {
+            if self.free_pages.contains(&id) {
+                return Err(Error::InodeOverFlow);
+            }
+            free_ids.push(id);
+            self.cache.insert(id);
+        }
         Ok(())
     }
+
+    pub fn release(&self, tx_id: u64) {}
+
     pub fn is_free(&self, id: PageId) -> bool {
-        self.free_pages.contains(&id)
+        self.cache.contains(&id)
+    }
+    // remove pages from a given tx id
+    pub fn rollback(&mut self, tx_id: u64) {
+        if let Some(pages) = self.pending.get(&tx_id) {
+            for id in pages {
+                self.cache.remove(id);
+            }
+        }
+        self.pending.remove(&tx_id);
     }
     // read from freeList page
     pub fn read(&mut self, p: &Page) -> Result<()> {
@@ -91,9 +116,11 @@ impl FreeList {
     fn count(&self) -> usize {
         self.free_pages.len() + self.pending_count()
     }
+
     fn pending_count(&self) -> usize {
         self.pending.iter().fold(0, |acc, cur| acc + cur.1.len())
     }
+
     fn page_ids(&self) -> Vec<PageId> {
         let mut ids = Vec::with_capacity(self.count());
         let free_pages: Vec<PageId> = self.free_pages.iter().map(|x| *x).collect();
@@ -103,5 +130,18 @@ impl FreeList {
         }
         ids.sort_unstable();
         ids
+    }
+
+    // rebuild cache
+    fn recache(&mut self) {
+        self.cache = HashSet::new();
+        for id in self.free_pages.iter() {
+            self.cache.insert(*id);
+        }
+        for (_, pages) in self.pending {
+            for id in pages {
+                self.cache.insert(id);
+            }
+        }
     }
 }
