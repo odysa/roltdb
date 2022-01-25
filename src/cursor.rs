@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, cell::RefCell, sync::Arc, ops::Deref};
+use std::{borrow::BorrowMut, cell::RefCell, ops::Deref, sync::Arc};
 
 use crate::{
     bucket::{Bucket, PageNode},
@@ -33,13 +33,19 @@ impl Cursor {
             page_node,
         };
         self.stack.push(elem.clone());
+        // it is a leaf node
+        match elem.upgrade() {
+            either::Either::Left(_) => todo!(),
+            either::Either::Right(_) => todo!(),
+        };
+
         Ok(())
     }
     // pub fn first(&self) -> (Option<Entry>, Option<Entry>) {
 
     // }
 }
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 struct ElementRef {
     index: usize,
     page_node: PageNode,

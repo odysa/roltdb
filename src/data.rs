@@ -1,6 +1,29 @@
-use std::slice::from_raw_parts;
+use std::ops::{Deref, DerefMut};
 
 pub type Entry = Vec<u8>;
+
+// a wrapper of raw pointer
+#[derive(Debug, Clone)]
+pub struct RawPtr<T>(pub(crate) *const T);
+
+impl<T> DerefMut for RawPtr<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *(self.0 as *mut T) }
+    }
+}
+
+impl<T> Deref for RawPtr<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &(*self.0) }
+    }
+}
+
+impl<T> RawPtr<T> {
+    pub(crate) fn new(v: &T) -> RawPtr<T> {
+        RawPtr(v as *const T)
+    }
+}
 
 // pub struct Entry {
 //     ptr: *const u8,

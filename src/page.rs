@@ -8,7 +8,7 @@ use crate::{
 pub type PageType = u8;
 pub type PageId = u64;
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Page {
     pub(crate) count: u16,
     pub(crate) overflow: u32,
@@ -36,6 +36,9 @@ impl Page {
     }
     pub fn ptr_mut(&mut self) -> *mut u8 {
         &mut self.ptr as *mut u8
+    }
+    pub(crate) fn is_leaf(&self) -> bool {
+        self.page_type == Self::LEAF_PAGE
     }
     // dereference meta data
     pub fn meta(&self) -> Result<&Meta> {

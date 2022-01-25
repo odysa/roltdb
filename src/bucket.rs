@@ -3,6 +3,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 use either::Either;
 
 use crate::{
+    data::RawPtr,
     error::{Error, Result},
     node::Node,
     page::{Page, PageId},
@@ -21,7 +22,7 @@ pub(crate) struct InnerBucket {
     fill_percent: f64,
     root: Option<Node>,
     nodes: HashMap<PageId, Node>,
-    page: Option<Rc<Page>>,
+    page: Option<RawPtr<Page>>,
 }
 
 impl Bucket {
@@ -99,7 +100,7 @@ impl IBucket {
     }
 }
 #[derive(Clone, Debug)]
-pub struct PageNode(Either<Rc<Page>, Node>);
+pub struct PageNode(Either<RawPtr<Page>, Node>);
 
 impl From<Node> for PageNode {
     fn from(node: Node) -> Self {
@@ -107,8 +108,29 @@ impl From<Node> for PageNode {
     }
 }
 
-impl From<Rc<Page>> for PageNode {
-    fn from(page: Rc<Page>) -> Self {
+impl From<RawPtr<Page>> for PageNode {
+    fn from(page: RawPtr<Page>) -> Self {
         Self(Either::Left(page))
+    }
+}
+
+impl PageNode {
+    pub(crate) fn is_leaf(&self) -> bool {
+        match self.0 {
+            Either::Left(_) => self.page().is_leaf(),
+            Either::Right(ref n) => n.is_leaf(),
+        }
+    }
+    fn page(&self) -> &Page {
+        match self.0 {
+            Either::Left(ref ptr) => &*ptr,
+            Either::Right(_) => todo!(),
+        }
+    }
+    pub(crate) fn upgrade(&self) -> Either<&Page, &Node> {
+        match self.0 {
+            Either::Left(ref ptr) => Either::Left(&*ptr),
+            Either::Right(ref n) => Either::Right(n),
+        }
     }
 }

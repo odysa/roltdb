@@ -35,6 +35,12 @@ impl Node {
     pub fn num_children(&self) -> usize {
         self.0.borrow().children.len()
     }
+    pub(crate) fn is_leaf(&self) -> bool {
+        match self.0.borrow().node_type {
+            NodeType::Branch => false,
+            NodeType::Leaf => true,
+        }
+    }
     fn split(&mut self) {}
     // split a node into two nodes
     fn break_up(&mut self) -> Result<Option<Node>> {
@@ -141,7 +147,6 @@ impl Node {
         }
     }
 }
-
 
 #[derive(Debug)]
 enum NodeType {
