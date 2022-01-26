@@ -3,6 +3,7 @@ use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use either::Either;
 
 use crate::{
+    cursor::Cursor,
     data::RawPtr,
     error::{Error, Result},
     node::Node,
@@ -50,6 +51,22 @@ impl Bucket {
     //     // tx.upgrade().ok_or(Error::TxNotValid)
     //     Ok(())
     // }
+
+    // get finds the value by key
+    pub fn get(&self, target: &[u8]) -> Option<&[u8]> {
+        let pair = self.cursor().seek(target).unwrap();
+        let (key, value) = (pair.key(), pair.value());
+        if key != Some(target) {
+            None
+        } else {
+            // notice: lifetime of reference to value
+            value
+        }
+    }
+    fn cursor(&self) -> Cursor {
+        Cursor::new(self.clone())
+    }
+
     pub fn root_id(&self) -> PageId {
         self.0.borrow().bucket.root
     }

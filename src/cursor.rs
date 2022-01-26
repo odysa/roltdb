@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, ops::Deref};
+use std::{cmp::Ordering, marker::PhantomData, ops::Deref};
 
 use crate::{
     bucket::{Bucket, PageNode},
@@ -7,15 +7,18 @@ use crate::{
     page::{Page, PageId},
 };
 
-struct Cursor {
+pub(crate) struct Cursor<'a> {
     bucket: Bucket,
     stack: Vec<ElementRef>,
+    // constrains the lifetime of pair
+    _f: PhantomData<KVPair<'a>>,
 }
-impl Cursor {
+impl<'a> Cursor<'a> {
     pub fn new(b: Bucket) -> Self {
         Self {
             bucket: b,
             stack: Vec::new(),
+            _f: PhantomData,
         }
     }
     pub fn bucket(&self) -> &Bucket {
@@ -71,14 +74,14 @@ impl Cursor {
         todo!()
     }
 
-    fn seek(&mut self, target: &[u8]) -> Result<KVPair> {
+    pub(crate) fn seek(&mut self, target: &[u8]) -> Result<KVPair<'a>> {
         let pair = self.seek_to(target)?;
 
         Ok(pair)
     }
 
     // move cursor to a key
-    fn seek_to(&mut self, target: &[u8]) -> Result<KVPair> {
+    fn seek_to(&mut self, target: &[u8]) -> Result<KVPair<'a>> {
         self.stack.clear();
         let root_id = self.bucket.root_id();
         self.search(target, root_id)?;
@@ -189,7 +192,7 @@ impl Cursor {
             }
         }
     }
-    fn kv_pair(&self) -> Result<KVPair> {
+    fn kv_pair(&self) -> Result<KVPair<'a>> {
         let elem = self.stack.last().ok_or("stack is empty")?;
         Ok(KVPair::from(elem))
     }
@@ -210,6 +213,7 @@ impl Deref for ElementRef {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct KVPair<'a> {
     pub(crate) key: Option<&'a [u8]>,
     pub(crate) value: Option<&'a [u8]>,
@@ -221,6 +225,12 @@ impl<'a> KVPair<'a> {
             key: None,
             value: None,
         }
+    }
+    pub(crate) fn key(&self) -> Option<&'a [u8]> {
+        self.key
+    }
+    pub(crate) fn value(&self) -> Option<&'a [u8]> {
+        self.value
     }
 }
 

@@ -1,7 +1,7 @@
 use std::{
     cell::{Ref, RefCell},
     intrinsics::copy_nonoverlapping,
-    rc::{Rc, Weak},
+    rc::Weak,
     sync::Arc,
 };
 
@@ -52,7 +52,7 @@ impl Node {
     fn split(&mut self) {}
     // split a node into two nodes
     fn break_up(&mut self) -> Result<Option<Node>> {
-        let mut new_node = Node::default();
+        let new_node = Node::default();
         Ok(Some(new_node))
     }
 
