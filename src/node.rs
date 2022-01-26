@@ -55,7 +55,34 @@ impl Node {
         let new_node = Node::default();
         Ok(Some(new_node))
     }
-
+    pub(crate) fn put(&mut self, old: &[u8], key: &[u8], value: &[u8], page_id: PageId) {
+        let mut node = self.0.borrow_mut();
+        let inodes = &mut node.inodes;
+        let (found, index) = match inodes.binary_search_by(|inode| inode.key().as_slice().cmp(old))
+        {
+            Ok(i) => (true, i),
+            Err(i) => (false, i),
+        };
+        // old key does not found, insert new inode
+        if !found {
+            inodes.insert(
+                index,
+                Inode::from(LeafINode {
+                    key: key.to_vec(),
+                    value: value.to_vec(),
+                }),
+            );
+        } else {
+            let inode = &mut inodes[index];
+            match &mut inode.0 {
+                Either::Right(l) => {
+                    l.key = key.to_vec();
+                    l.value = key.to_vec();
+                }
+                _ => unreachable!(),
+            }
+        };
+    }
     // read page to node
     pub fn read(&mut self, p: &Page) -> Result<()> {
         let mut node = self.0.borrow_mut();
@@ -168,6 +195,7 @@ impl Default for NodeType {
 }
 #[derive(Debug)]
 pub(crate) struct Inode(Either<BranchINode, LeafINode>);
+
 impl Inode {
     pub(crate) fn key(&self) -> &Vec<u8> {
         match &self.0 {
