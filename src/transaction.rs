@@ -6,32 +6,37 @@ use std::{
 
 use crate::{
     bucket::Bucket,
+    data::RawPtr,
     db::WeakDB,
     error::Result,
     meta::Meta,
     page::{Page, PageId},
 };
+pub type TXID = u64;
+#[derive(Debug, Clone)]
+pub struct Transaction(pub(crate) Rc<ITransaction>);
 
-#[derive(Debug)]
-pub struct Transaction(pub(crate) Arc<ITransaction>);
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WeakTransaction(pub(crate) Weak<ITransaction>);
-
+impl WeakTransaction {
+    pub(crate) fn upgrade(&self) -> Option<Transaction> {
+        self.0.upgrade().map(Transaction)
+    }
+}
 #[derive(Debug)]
 pub(crate) struct ITransaction {
     pub(crate) writable: bool,
     db: RwLock<WeakDB>,
     managed: bool,
     root: RwLock<Bucket>,
-    pages: RwLock<HashMap<PageId, Rc<Page>>>,
+    pages: RwLock<HashMap<PageId, RawPtr<Page>>>,
     meta: RwLock<Meta>,
     // commit_handlers: Vec<Box<dyn Fn()>>, // call functions after commit
 }
 
 impl Transaction {
     pub fn new(db: WeakDB, writable: bool) -> Self {
-        Transaction(Arc::new(ITransaction {
+        Transaction(Rc::new(ITransaction {
             db: RwLock::new(db),
             managed: false,
             // commit_handlers: Vec::new(),
@@ -41,11 +46,12 @@ impl Transaction {
             root: RwLock::new(Bucket::new(WeakTransaction::new())),
         }))
     }
-    pub fn page(&self, id: PageId) -> Result<Rc<Page>> {
-        let pages = self.0.pages.try_read().unwrap();
+    pub fn page(&self, id: PageId) -> Result<RawPtr<Page>> {
+        let pages = self.0.pages.read().unwrap();
         if let Some(page) = pages.get(&id) {
             Ok(page.clone())
         } else {
+            // get page from mmap
             todo!()
         }
     }
@@ -55,6 +61,7 @@ impl Transaction {
     pub fn writable(&self) -> bool {
         self.0.writable
     }
+    pub(crate) fn id(&self) ->
 }
 
 impl WeakTransaction {

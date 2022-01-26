@@ -5,7 +5,7 @@ use crate::{
     bucket::IBucket,
     error::Result,
     page::{Page, PageId},
-    utils::struct_to_slice,
+    utils::struct_to_slice, transaction::TXID,
 };
 
 #[derive(Debug)]
@@ -15,7 +15,7 @@ pub struct Meta {
     version: u32,
     page_size: u32,
     free_list: PageId, // page id of free list
-    tx_id: PageId,
+    tx_id: TXID,
 
     root: IBucket,
 

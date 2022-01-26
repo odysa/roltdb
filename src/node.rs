@@ -1,8 +1,7 @@
 use std::{
-    cell::{Ref, RefCell},
+    cell::{Ref, RefCell, RefMut},
     intrinsics::copy_nonoverlapping,
-    rc::Weak,
-    sync::Arc,
+    rc::{Rc, Weak},
 };
 
 use either::Either;
@@ -16,17 +15,26 @@ use crate::{
 
 type NodeId = u64;
 #[derive(Default, Clone, Debug)]
-pub struct Node(pub(crate) Arc<RefCell<InnerNode>>);
+pub(crate) struct Node(pub(crate) Rc<RefCell<InnerNode>>);
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
+pub struct WeakNode(Weak<RefCell<InnerNode>>);
+
+impl WeakNode {
+    pub fn upgrade(&self) -> Option<Node> {
+        self.0.upgrade().map(Node)
+    }
+}
+
+#[derive(Default, Debug, Clone)]
 pub(crate) struct InnerNode {
     bucket: Option<Bucket>,
     page_id: PageId,
     unbalanced: bool,
     spilled: bool,
     pub(crate) inodes: Vec<Inode>,
-    children: Vec<NodeId>,
-    parent: RefCell<Weak<Node>>,
+    pub(crate) children: Vec<Node>,
+    pub(crate) parent: WeakNode,
     node_type: NodeType,
     key: Option<Entry>,
 }
@@ -39,6 +47,9 @@ impl Node {
     }
     pub(crate) fn inner(&self) -> Ref<InnerNode> {
         self.0.borrow()
+    }
+    pub(crate) fn inner_mut(&self) -> RefMut<InnerNode> {
+        self.0.borrow_mut()
     }
     pub fn num_children(&self) -> usize {
         self.0.borrow().children.len()
@@ -183,7 +194,7 @@ impl Node {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum NodeType {
     Branch,
     Leaf,
@@ -193,7 +204,7 @@ impl Default for NodeType {
         NodeType::Leaf
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Inode(Either<BranchINode, LeafINode>);
 
 impl Inode {
@@ -228,13 +239,13 @@ impl From<LeafINode> for Inode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct BranchINode {
     key: Entry,
     page_id: PageId,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct LeafINode {
     key: Entry,
     value: Entry,

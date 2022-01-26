@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, marker::PhantomData, ops::Deref};
+use std::{cmp::Ordering, marker::PhantomData, ops::Deref, borrow::BorrowMut};
 
 use crate::{
     bucket::{Bucket, PageNode},
@@ -195,6 +195,23 @@ impl<'a> Cursor<'a> {
     fn kv_pair(&self) -> Result<KVPair<'a>> {
         let elem = self.stack.last().ok_or("stack is empty")?;
         Ok(KVPair::from(elem))
+    }
+    pub(crate) fn node(&self) -> Result<Node> {
+        let elem = &self.stack.last().ok_or("stack is empty")?;
+        // leaf node is on the top of stack
+        if elem.is_leaf() & elem.is_left() {
+            Ok(elem.as_ref().right().unwrap().clone())
+        }else{
+            let root = self.stack[0].clone();
+            match root.upgrade() {
+                // read page
+                either::Either::Left(p) => {
+                    
+                },
+                either::Either::Right(n) => n.clone(),
+            }
+        }
+        //
     }
     // pub fn first(&self) -> (Option<Entry>, Option<Entry>) {
 
