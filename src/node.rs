@@ -1,4 +1,9 @@
-use std::{cell::RefCell, intrinsics::copy_nonoverlapping, rc::Weak, sync::Arc};
+use std::{
+    cell::{Ref, RefCell},
+    intrinsics::copy_nonoverlapping,
+    rc::{Rc, Weak},
+    sync::Arc,
+};
 
 use either::Either;
 
@@ -19,7 +24,7 @@ pub(crate) struct InnerNode {
     page_id: PageId,
     unbalanced: bool,
     spilled: bool,
-    inodes: Vec<Inode>,
+    pub(crate) inodes: Vec<Inode>,
     children: Vec<NodeId>,
     parent: RefCell<Weak<Node>>,
     node_type: NodeType,
@@ -31,6 +36,9 @@ impl Node {
         Node {
             ..Default::default()
         }
+    }
+    pub(crate) fn inner(&self) -> Ref<InnerNode> {
+        self.0.borrow()
     }
     pub fn num_children(&self) -> usize {
         self.0.borrow().children.len()
@@ -159,7 +167,7 @@ impl Default for NodeType {
     }
 }
 #[derive(Debug)]
-struct Inode(Either<BranchINode, LeafINode>);
+pub(crate) struct Inode(Either<BranchINode, LeafINode>);
 impl Inode {
     pub(crate) fn key(&self) -> &Vec<u8> {
         match &self.0 {
@@ -191,10 +199,6 @@ impl From<LeafINode> for Inode {
         Self(Either::Right(node))
     }
 }
-// enum Inode {
-//     Branch(BranchINode),
-//     Leaf(LeafINode),
-// }
 
 #[derive(Debug)]
 struct BranchINode {

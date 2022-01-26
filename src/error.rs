@@ -8,6 +8,13 @@ pub enum Error {
     PageEmpty,
     InodeOverFlow,
     InvalidInode,
+    Error(String),
+}
+
+impl From<&str> for Error {
+    fn from(s: &str) -> Self {
+        Self::Error(s.to_string())
+    }
 }
 
 impl Error {
@@ -18,6 +25,7 @@ impl Error {
             Error::PageEmpty => "page is empty",
             Error::InodeOverFlow => "inode overflow",
             Error::InvalidInode => "inode is not valid type",
+            Error::Error(ref s) => &s.as_str(),
         }
     }
 }

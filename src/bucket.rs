@@ -133,4 +133,10 @@ impl PageNode {
             Either::Right(ref n) => Either::Right(n),
         }
     }
+    pub(crate) fn count(&self) -> usize {
+        match self.0 {
+            Either::Left(_) => self.page().count as usize,
+            Either::Right(ref n) => n.inner().inodes.len(),
+        }
+    }
 }
