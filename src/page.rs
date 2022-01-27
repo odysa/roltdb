@@ -2,7 +2,8 @@ use std::{mem::size_of, slice::from_raw_parts};
 
 use crate::{
     error::{Result, RoltError},
-    meta::Meta, Err,
+    meta::Meta,
+    Err,
 };
 
 pub type PageType = u8;
@@ -48,6 +49,16 @@ impl Page {
                 let meta_ptr = self.ptr as *const Meta;
                 let meta = &*meta_ptr;
                 Ok(&meta)
+            },
+        }
+    }
+    pub(crate) fn meta_mut(&self) -> Result<&mut Meta> {
+        match self.page_type {
+            Page::META_PAGE => Err!(RoltError::InvalidPageType),
+            _ => unsafe {
+                let meta_ptr = self.ptr as *const Meta as *mut Meta;
+                let meta = &mut *meta_ptr;
+                Ok(meta)
             },
         }
     }

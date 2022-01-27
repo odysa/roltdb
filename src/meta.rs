@@ -17,7 +17,6 @@ pub(crate) struct Meta {
     pub(crate) page_size: u32,
     pub(crate) free_list: PageId, // page id of free list
     pub(crate) tx_id: TXID,
-
     pub(crate) root: IBucket,
 
     check_sum: u64,
@@ -42,6 +41,17 @@ impl Meta {
     const VERSION: u32 = 1;
     const META_SIZE: usize = size_of::<Self>();
     const SUM_SIZE: usize = size_of::<u64>();
+    pub fn init(&mut self, page_id: PageId) {
+        self.page_id = page_id;
+        self.magic_number = Self::MAGIC;
+        self.version = Self::VERSION;
+        self.free_list = 2;
+        self.root = IBucket {
+            root: 3,
+            sequence: 0,
+        };
+        self.check_sum = self.sum64();
+    }
     // write meta to the given page
     pub fn write(&mut self, p: &mut Page) -> Result<()> {
         // either 0 or 1

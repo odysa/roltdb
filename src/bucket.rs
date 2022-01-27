@@ -5,10 +5,11 @@ use either::Either;
 use crate::{
     cursor::Cursor,
     data::RawPtr,
-    error::{RoltError, Result},
+    error::{Result, RoltError},
     node::{Node, WeakNode},
     page::{Page, PageId},
-    transaction::{Transaction, WeakTransaction}, Err,
+    transaction::{Transaction, WeakTransaction},
+    Err,
 };
 
 // #[derive(Debug, Clone)]
@@ -152,9 +153,9 @@ impl Bucket {
 // on-file representation of bucket
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct IBucket {
-    root: PageId,
+    pub(crate) root: PageId,
     // increase monotonically
-    sequence: u64,
+    pub(crate) sequence: u64,
 }
 
 impl IBucket {

@@ -1,6 +1,8 @@
 use anyhow::anyhow;
+use fs2::FileExt;
 use std::{
     fs::{File, OpenOptions},
+    io::Write,
     ops::Deref,
     path::Path,
     rc::{Rc, Weak},
@@ -68,12 +70,37 @@ impl IDB {
         };
         Ok(meta.clone())
     }
-    fn init_file(p: &Path, page_size: u64, page_num: usize) -> Result<File> {
+    fn init_file(p: &Path, page_size: u64, page_num: u64) -> Result<File> {
         let mut file = OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
             .open(p)?;
+        file.allocate(page_size * page_num)?;
+        // allocate 4 pages
+        let mut buf: Vec<u8> = vec![0; (page_size * 4) as usize];
+        // init meta pages
+        for i in 0..4 {
+            let page =
+                unsafe { &mut *(&mut buf[(i * page_size) as usize] as *mut u8 as *mut Page) };
+            if i < 2 {
+                page.page_type = Page::META_PAGE;
+                let m = page.meta_mut()?;
+                m.init(i);
+            } else if i == 2 {
+                // init free list
+                page.id = 2;
+                page.page_type = Page::FREE_LIST_PAGE;
+                page.count = 0;
+            } else {
+                page.id = 3;
+                page.page_type = Page::LEAF_PAGE;
+                page.count;
+            }
+        }
+        file.write_all(&buf[..])?;
+        file.flush()?;
+        file.sync_all()?;
         Ok(file)
     }
 }
