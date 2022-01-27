@@ -41,7 +41,7 @@ impl Page {
         self.page_type == Self::LEAF_PAGE
     }
     // dereference meta data
-    pub fn meta(&self) -> Result<&Meta> {
+    pub(crate) fn meta(&self) -> Result<&Meta> {
         match self.page_type {
             Page::META_PAGE => Err(Error::InvalidPageType),
             _ => unsafe {

@@ -3,8 +3,14 @@ use std::ops::{Deref, DerefMut};
 pub type Entry = Vec<u8>;
 
 // a wrapper of raw pointer
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct RawPtr<T>(pub(crate) *const T);
+
+impl<T> Default for RawPtr<T> {
+    fn default() -> Self {
+        Self(0 as *const T)
+    }
+}
 
 impl<T> DerefMut for RawPtr<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
@@ -22,6 +28,9 @@ impl<T> Deref for RawPtr<T> {
 impl<T> RawPtr<T> {
     pub(crate) fn new(v: &T) -> RawPtr<T> {
         RawPtr(v as *const T)
+    }
+    pub(crate) fn unwrap(&self) -> *const T{
+        self.0
     }
 }
 

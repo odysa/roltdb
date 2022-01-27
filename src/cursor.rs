@@ -1,9 +1,9 @@
-use std::{cmp::Ordering, marker::PhantomData, ops::Deref, borrow::BorrowMut};
+use std::{cmp::Ordering, marker::PhantomData, ops::Deref};
 
 use crate::{
     bucket::{Bucket, PageNode},
     error::Result,
-    node::Node,
+    node::{Node, WeakNode},
     page::{Page, PageId},
 };
 
@@ -48,7 +48,7 @@ impl<'a> Cursor<'a> {
             // if it is branch then go deeper
             let page_id = match elem.upgrade() {
                 either::Either::Left(p) => p.branch_elements()?[elem.index].id,
-                either::Either::Right(n) => n.inner().inodes[elem.index]
+                either::Either::Right(n) => n.inodes.borrow()[elem.index]
                     .page_id()
                     .ok_or("does not have page id")?,
             };
@@ -138,7 +138,7 @@ impl<'a> Cursor<'a> {
     }
     // find target key in a node
     fn search_node(&mut self, target: &[u8], n: &Node) -> Result<()> {
-        let inodes = &n.inner().inodes;
+        let inodes = n.inodes.borrow();
         let (found, mut index) =
             match inodes.binary_search_by(|inode| inode.key().as_slice().cmp(target)) {
                 Ok(mut v) => {
@@ -180,8 +180,8 @@ impl<'a> Cursor<'a> {
             }
             either::Either::Right(n) => {
                 let index = match n
-                    .inner()
                     .inodes
+                    .borrow()
                     .binary_search_by(|inode| inode.key().as_slice().cmp(target))
                 {
                     Ok(i) => i,
@@ -196,20 +196,24 @@ impl<'a> Cursor<'a> {
         let elem = self.stack.last().ok_or("stack is empty")?;
         Ok(KVPair::from(elem))
     }
-    pub(crate) fn node(&self) -> Result<Node> {
+    pub(crate) fn node(&mut self) -> Result<Node> {
         let elem = &self.stack.last().ok_or("stack is empty")?;
         // leaf node is on the top of stack
         if elem.is_leaf() & elem.is_left() {
             Ok(elem.as_ref().right().unwrap().clone())
-        }else{
-            let root = self.stack[0].clone();
-            match root.upgrade() {
+        } else {
+            // begin from root node
+            let elem = self.stack[0].clone();
+            let node = match elem.upgrade() {
                 // read page
-                either::Either::Left(p) => {
-                    
-                },
+                either::Either::Left(p) => self.bucket.node(p.id, WeakNode::default()),
                 either::Either::Right(n) => n.clone(),
+            };
+            let len = self.stack.len();
+            for e in &self.stack[..len - 1] {
+                todo!()
             }
+            Ok(node)
         }
         //
     }
@@ -266,7 +270,7 @@ impl<'a> From<&ElementRef> for KVPair<'a> {
                     }
                 }
                 either::Either::Right(ref n) => {
-                    let inode = &n.inner().inodes[elem.index];
+                    let inode = &n.inodes.borrow()[elem.index];
                     let value = inode.value().ok_or("does not have value").unwrap();
                     Self {
                         key: Some(&*(inode.key().as_slice() as *const [u8])),

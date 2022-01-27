@@ -1,9 +1,4 @@
-use std::{
-    cell::{Ref, RefCell, RefMut},
-    collections::HashMap,
-    ops::{Deref, DerefMut},
-    rc::Rc,
-};
+use std::{collections::HashMap, ops::Deref};
 
 use either::Either;
 
@@ -16,26 +11,29 @@ use crate::{
     transaction::{Transaction, WeakTransaction},
 };
 
-#[derive(Debug, Clone)]
-pub(crate) struct Bucket(pub(crate) Rc<RefCell<InnerBucket>>);
+// #[derive(Debug, Clone)]
+// pub(crate) struct Bucket(pub(crate) Rc<RefCell<InnerBucket>>);
 
-impl Deref for Bucket {
-    type Target = Rc<RefCell<InnerBucket>>;
+// #[derive(Debug, Clone, Default)]
+// pub(crate) struct WeakBucket(pub(crate) Weak<RefCell<InnerBucket>>);
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+// impl Deref for Bucket {
+//     type Target = Rc<RefCell<InnerBucket>>;
 
-impl DerefMut for Bucket {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
+
+// impl DerefMut for Bucket {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         &mut self.0
+//     }
+// }
 
 // a collection of kev-value pairs
 #[derive(Debug, Clone)]
-pub(crate) struct InnerBucket {
+pub(crate) struct Bucket {
     bucket: IBucket,
     // nested bucket
     buckets: HashMap<String, Bucket>,
@@ -47,15 +45,12 @@ pub(crate) struct InnerBucket {
 }
 
 impl Bucket {
-    pub fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
     const DEFAULT_FILL_PERCENT: f64 = 0.5;
     pub fn tx(&self) -> Result<Transaction> {
-        self.inner().tx.upgrade().ok_or(Error::from("tx not valid"))
+        self.tx.upgrade().ok_or(Error::from("tx not valid"))
     }
     pub fn new(tx: WeakTransaction) -> Self {
-        Self(Rc::new(RefCell::new(InnerBucket {
+        Self {
             bucket: IBucket::new(),
             buckets: HashMap::new(),
             root: None,
@@ -63,7 +58,7 @@ impl Bucket {
             page: None,
             fill_percent: Self::DEFAULT_FILL_PERCENT,
             tx,
-        })))
+        }
     }
     // pub fn create_bucket(&self, key: String) {
     //     let tx = self.0.borrow().tx.0;
@@ -91,42 +86,34 @@ impl Bucket {
     }
 
     pub fn root_id(&self) -> PageId {
-        self.0.borrow().bucket.root
+        self.bucket.root
     }
 
     pub fn page_node(&self, id: PageId) -> Result<PageNode> {
-        let b = self.0.borrow();
         if self.root_id() == 0 {
             if id != 0 {}
-            if let Some(ref root) = b.root {
+            if let Some(ref root) = self.root {
                 Ok(PageNode::from(root.clone()))
             } else {
-                if let Some(ref page) = b.page {
+                if let Some(ref page) = self.page {
                     Ok(PageNode::from(page.clone()))
                 } else {
                     Err(Error::PageEmpty)
                 }
             }
         } else {
-            if let Some(node) = b.nodes.get(&id) {
+            if let Some(node) = self.nodes.get(&id) {
                 Ok(PageNode::from(node.clone()))
             } else {
                 todo!()
             }
         }
     }
-    fn inner(&self) -> Ref<InnerBucket> {
-        (*self.0).borrow()
-    }
-    fn inner_mut(&mut self) -> RefMut<InnerBucket> {
-        (*self.0).borrow_mut()
-    }
     pub fn clear(&mut self) {
-        let mut b = self.inner_mut();
-        b.page = None;
-        b.buckets.clear();
-        b.root = None;
-        b.nodes.clear();
+        self.page = None;
+        self.buckets.clear();
+        self.root = None;
+        self.nodes.clear();
     }
     // create a node from page
     pub(crate) fn node(&mut self, page_id: PageId, parent: WeakNode) -> Node {
@@ -134,23 +121,22 @@ impl Bucket {
         assert!(self.tx().unwrap().writable());
 
         let mut node = Node::default();
-        let mut node_mut = node.inner_mut();
-        node_mut.parent = parent;
+
         // node crated
-        if let Some(n) = self.inner().nodes.get(&page_id) {
+        if let Some(n) = self.nodes.get(&page_id) {
             return n.clone();
         }
         match parent.upgrade() {
             Some(p) => {
-                p.inner_mut().children.push(node.clone());
+                p.children.borrow_mut().push(node.clone());
             }
             None => {
                 // set new root if parent is empty
-                self.inner_mut().root.replace(node.clone());
+                self.root.replace(node.clone());
             }
         };
         // read from page
-        if let Some(ptr) = self.inner().page {
+        if let Some(ptr) = &self.page {
             let page = &*ptr;
             // convert page to node
             node.read(page);
@@ -159,7 +145,7 @@ impl Bucket {
             let page = self.tx().unwrap().page(page_id).unwrap();
             node.read(&*page);
         }
-        self.inner_mut().nodes.insert(page_id, node.clone());
+        self.nodes.insert(page_id, node.clone());
         node
     }
 }
@@ -180,7 +166,7 @@ impl IBucket {
     }
 }
 #[derive(Clone, Debug)]
-pub struct PageNode(Either<RawPtr<Page>, Node>);
+pub(crate) struct PageNode(Either<RawPtr<Page>, Node>);
 
 impl Deref for PageNode {
     type Target = Either<RawPtr<Page>, Node>;
@@ -224,7 +210,7 @@ impl PageNode {
     pub(crate) fn count(&self) -> usize {
         match self.0 {
             Either::Left(_) => self.page().count as usize,
-            Either::Right(ref n) => n.inner().inodes.len(),
+            Either::Right(ref n) => n.inodes.borrow().len(),
         }
     }
 }

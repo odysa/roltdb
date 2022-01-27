@@ -1,7 +1,8 @@
 use std::{
     collections::HashMap,
+    ops::Deref,
     rc::{Rc, Weak},
-    sync::{Arc, RwLock},
+    sync::RwLock,
 };
 
 use crate::{
@@ -24,8 +25,8 @@ impl WeakTransaction {
     }
 }
 #[derive(Debug)]
-pub(crate) struct ITransaction {
-    pub(crate) writable: bool,
+pub struct ITransaction {
+    pub writable: bool,
     db: RwLock<WeakDB>,
     managed: bool,
     root: RwLock<Bucket>,
@@ -59,9 +60,22 @@ impl Transaction {
         Ok(())
     }
     pub fn writable(&self) -> bool {
-        self.0.writable
+        self.writable
     }
-    pub(crate) fn id(&self) ->
+    pub(crate) fn id(&self) -> TXID {
+        self.meta.try_read().unwrap().tx_id
+    }
+    pub(crate) fn page_id(&self) -> PageId {
+        self.meta.try_read().unwrap().page_id
+    }
+}
+
+impl Deref for Transaction {
+    type Target = Rc<ITransaction>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl WeakTransaction {

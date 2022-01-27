@@ -5,19 +5,20 @@ use crate::{
     bucket::IBucket,
     error::Result,
     page::{Page, PageId},
-    utils::struct_to_slice, transaction::TXID,
+    transaction::TXID,
+    utils::struct_to_slice,
 };
 
 #[derive(Debug)]
-pub struct Meta {
-    page_id: PageId,
-    magic_number: u32,
-    version: u32,
-    page_size: u32,
-    free_list: PageId, // page id of free list
-    tx_id: TXID,
+pub(crate) struct Meta {
+    pub(crate) page_id: PageId,
+    pub(crate) magic_number: u32,
+    pub(crate) version: u32,
+    pub(crate) page_size: u32,
+    pub(crate) free_list: PageId, // page id of free list
+    pub(crate) tx_id: TXID,
 
-    root: IBucket,
+    pub(crate) root: IBucket,
 
     check_sum: u64,
 }
