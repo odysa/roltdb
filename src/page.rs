@@ -1,8 +1,8 @@
 use std::{mem::size_of, slice::from_raw_parts};
 
 use crate::{
-    error::{Error, Result},
-    meta::Meta,
+    error::{Result, RoltError},
+    meta::Meta, Err,
 };
 
 pub type PageType = u8;
@@ -43,17 +43,17 @@ impl Page {
     // dereference meta data
     pub(crate) fn meta(&self) -> Result<&Meta> {
         match self.page_type {
-            Page::META_PAGE => Err(Error::InvalidPageType),
+            Page::META_PAGE => Err!(RoltError::InvalidPageType),
             _ => unsafe {
                 let meta_ptr = self.ptr as *const Meta;
                 let meta = &*meta_ptr;
-                Ok(meta)
+                Ok(&meta)
             },
         }
     }
     pub fn free_list(&self) -> Result<&[PageId]> {
         match self.page_type {
-            Page::FREE_LIST_PAGE => Err(Error::InvalidPageType),
+            Page::FREE_LIST_PAGE => Err!(RoltError::InvalidPageType),
             _ => unsafe {
                 let addr = self.ptr as *const PageId;
                 Ok(from_raw_parts(addr, self.count as usize))
@@ -71,7 +71,7 @@ impl Page {
 
     pub fn branch_elements(&self) -> Result<&[BranchPageElement]> {
         match self.page_type {
-            Page::BRANCH_PAGE => Err(Error::InvalidPageType),
+            Page::BRANCH_PAGE => Err!(RoltError::InvalidPageType),
             _ => unsafe {
                 let addr = self.ptr as *const u64 as *const BranchPageElement;
                 Ok(from_raw_parts(addr, self.count as usize))
@@ -87,7 +87,7 @@ impl Page {
     }
     pub fn leaf_elements(&self) -> Result<&[LeafPageElement]> {
         match self.page_type {
-            Page::LEAF_PAGE => Err(Error::InvalidPageType),
+            Page::LEAF_PAGE => Err!(RoltError::InvalidPageType),
             _ => unsafe {
                 let addr = self.ptr as *const u64 as *const LeafPageElement;
                 Ok(from_raw_parts(addr, self.count as usize))
@@ -100,6 +100,9 @@ impl Page {
             let elem = elem as *const [LeafPageElement] as *mut [LeafPageElement];
             Ok(&mut *elem)
         }
+    }
+    pub(crate) fn from_buf(buf: &[u8], id: PageId, page_size: u64) -> &Page {
+        unsafe { &*(&buf[(id * page_size) as usize] as *const u8 as *const Page) }
     }
 }
 

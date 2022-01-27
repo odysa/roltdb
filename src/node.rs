@@ -10,8 +10,9 @@ use either::Either;
 use crate::{
     bucket::Bucket,
     data::{Entry, RawPtr},
-    error::{Error, Result},
+    error::{Result, RoltError},
     page::{BranchPageElement, LeafPageElement, Page, PageId},
+    Err,
 };
 
 type NodeId = u64;
@@ -146,7 +147,7 @@ impl Node {
         };
         let inodes = node.inodes.borrow_mut();
         if inodes.len() > u16::MAX as usize {
-            return Err(Error::InodeOverFlow);
+            return Err!(RoltError::InodeOverFlow);
         }
         p.count = inodes.len() as u16;
         if p.count == 0 {
@@ -165,7 +166,7 @@ impl Node {
                     let elem = &mut branches[i];
                     let ptr = elem as *const BranchPageElement as *const u8;
                     elem.k_size = inode.key().len() as u32;
-                    elem.id = inode.page_id().ok_or(Error::InvalidInode)?;
+                    elem.id = inode.page_id().ok_or(RoltError::InvalidInode)?;
                     // offset from key to the element
                     elem.pos = unsafe { addr.sub(ptr as usize) } as u32;
                     unsafe {
@@ -181,7 +182,7 @@ impl Node {
                     let ptr = elem as *const LeafPageElement as *const u8;
                     elem.pos = unsafe { addr.sub(ptr as usize) } as u32;
                     elem.k_size = inode.key().len() as u32;
-                    let value = inode.value().ok_or(Error::InvalidInode)?;
+                    let value = inode.value().ok_or(RoltError::InvalidInode)?;
                     elem.v_size = value.len() as u32;
                     // write key and value
                     unsafe {

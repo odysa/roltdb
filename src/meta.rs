@@ -3,13 +3,13 @@ use std::{hash::Hasher, intrinsics::copy_nonoverlapping, mem::size_of, slice::fr
 
 use crate::{
     bucket::IBucket,
-    error::Result,
+    error::{Result, RoltError},
     page::{Page, PageId},
     transaction::TXID,
     utils::struct_to_slice,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Meta {
     pub(crate) page_id: PageId,
     pub(crate) magic_number: u32,
@@ -67,5 +67,8 @@ impl Meta {
         };
         hash.write(buf);
         hash.finish()
+    }
+    pub(crate) fn validate(&self) -> bool {
+        self.magic_number == Self::MAGIC && self.check_sum == self.sum64()
     }
 }

@@ -1,7 +1,9 @@
-use crate::error::{Error, Result};
+use crate::Err;
+use crate::error::{RoltError, Result};
 use crate::page::{Page, PageId};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-struct FreeList {
+#[derive(Debug)]
+pub(crate) struct FreeList {
     pending: BTreeMap<PageId, Vec<PageId>>,
     free_pages: BTreeSet<PageId>, // in-memory look up
     cache: HashSet<PageId>,
@@ -51,7 +53,7 @@ impl FreeList {
 
         for id in (p.id)..(p.id + p.overflow as PageId) {
             if self.free_pages.contains(&id) {
-                return Err(Error::InodeOverFlow);
+                return Err!(RoltError::InodeOverFlow);
             }
             free_ids.push(id);
             self.cache.insert(id);

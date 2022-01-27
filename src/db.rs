@@ -1,10 +1,10 @@
-use core::panic;
+use anyhow::anyhow;
 use std::{
     fs::{File, OpenOptions},
     ops::Deref,
-    path::{Path, PathBuf},
+    path::Path,
     rc::{Rc, Weak},
-    sync::{Mutex, RwLock},
+    sync::Mutex,
 };
 
 use memmap::{Mmap, MmapOptions};
@@ -32,8 +32,7 @@ impl IDB {
             MmapOptions::new()
                 .offset(0)
                 .len(page_size as usize)
-                .map(&file)
-                .map_err(|_| "fail to mmap")?
+                .map(&file)?
         };
 
         let mut db = IDB {
@@ -42,7 +41,7 @@ impl IDB {
             file: Mutex::new(file),
             free_list: FreeList::new(),
         };
-        let meta = db.meta();
+        let meta = db.meta()?;
         let free_list = Page::from_buf(&db.mmap, meta.free_list, page_size)
             .free_list()
             .unwrap();
@@ -51,17 +50,23 @@ impl IDB {
         }
         Ok(db)
     }
-    fn meta(&self) -> Meta {
+    fn meta(&self) -> Result<Meta> {
         let buf = &self.mmap;
-        let meta0 = Page::from_buf(buf, 0, self.page_size).meta().unwrap();
-        let meta1 = Page::from_buf(buf, 1, self.page_size).meta().unwrap();
+        let meta0 = Page::from_buf(buf, 0, self.page_size).meta()?;
+        let meta1 = Page::from_buf(buf, 1, self.page_size).meta()?;
         let meta = match (meta0.validate(), meta1.validate()) {
-            (true, true) => meta0,
+            (true, true) => {
+                if meta0.tx_id > meta1.tx_id {
+                    meta0
+                } else {
+                    meta1
+                }
+            }
             (true, false) => meta0,
             (false, true) => meta1,
             (false, false) => panic!("both meta not valid"),
         };
-        meta
+        Ok(meta.clone())
     }
     fn init_file(p: &Path, page_size: u64, page_num: usize) -> Result<File> {
         let mut file = OpenOptions::new()
@@ -69,6 +74,7 @@ impl IDB {
             .read(true)
             .write(true)
             .open(p)?;
+        Ok(file)
     }
 }
 

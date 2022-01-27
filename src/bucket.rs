@@ -5,10 +5,10 @@ use either::Either;
 use crate::{
     cursor::Cursor,
     data::RawPtr,
-    error::{Error, Result},
+    error::{RoltError, Result},
     node::{Node, WeakNode},
     page::{Page, PageId},
-    transaction::{Transaction, WeakTransaction},
+    transaction::{Transaction, WeakTransaction}, Err,
 };
 
 // #[derive(Debug, Clone)]
@@ -47,7 +47,7 @@ pub(crate) struct Bucket {
 impl Bucket {
     const DEFAULT_FILL_PERCENT: f64 = 0.5;
     pub fn tx(&self) -> Result<Transaction> {
-        self.tx.upgrade().ok_or(Error::from("tx not valid"))
+        self.tx.upgrade().ok_or(RoltError::TxNotValid.into())
     }
     pub fn new(tx: WeakTransaction) -> Self {
         Self {
@@ -98,7 +98,7 @@ impl Bucket {
                 if let Some(ref page) = self.page {
                     Ok(PageNode::from(page.clone()))
                 } else {
-                    Err(Error::PageEmpty)
+                    Err!(RoltError::PageEmpty)
                 }
             }
         } else {
@@ -165,6 +165,7 @@ impl IBucket {
         }
     }
 }
+
 #[derive(Clone, Debug)]
 pub(crate) struct PageNode(Either<RawPtr<Page>, Node>);
 

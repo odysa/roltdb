@@ -6,7 +6,7 @@ use crate::{
     node::{Node, WeakNode},
     page::{Page, PageId},
 };
-
+use anyhow::anyhow;
 pub(crate) struct Cursor<'a> {
     bucket: Bucket,
     stack: Vec<ElementRef>,
@@ -40,7 +40,7 @@ impl<'a> Cursor<'a> {
     }
     fn first_leaf(&mut self) -> Result<()> {
         loop {
-            let elem = self.stack.last().ok_or("empty stack")?;
+            let elem = self.stack.last().ok_or(anyhow!("stack empty"))?;
             // stop when find a leaf
             if elem.is_leaf() {
                 break;
@@ -50,7 +50,7 @@ impl<'a> Cursor<'a> {
                 either::Either::Left(p) => p.branch_elements()?[elem.index].id,
                 either::Either::Right(n) => n.inodes.borrow()[elem.index]
                     .page_id()
-                    .ok_or("does not have page id")?,
+                    .ok_or(anyhow::anyhow!("does not have page id"))?,
             };
             let page_node = self.bucket.page_node(page_id)?;
             self.stack.push(ElementRef {
@@ -129,7 +129,7 @@ impl<'a> Cursor<'a> {
         if !found && index > 0 {
             index -= 1;
         }
-        self.stack.last_mut().ok_or("empty stack")?.index = index;
+        self.stack.last_mut().ok_or(anyhow!("stack empty"))?.index = index;
 
         // recursively search the next node
         self.search(target, branches[index].id)?;
@@ -157,17 +157,17 @@ impl<'a> Cursor<'a> {
         if !found && index > 0 {
             index -= 1;
         }
-        self.stack.last_mut().ok_or("empty stack")?.index = index;
+        self.stack.last_mut().ok_or(anyhow!("stack empty"))?.index = index;
         let page_id = inodes[index]
             .page_id()
-            .ok_or("leaf inode does not have page id")?;
+            .ok_or(anyhow!("leaf inode does not have page id"))?;
         self.search(target, page_id)?;
         Ok(())
     }
 
     // search leaf node for the key
     fn nsearch(&mut self, target: &[u8]) -> Result<()> {
-        let elem = self.stack.last_mut().ok_or("stack empty")?;
+        let elem = self.stack.last_mut().ok_or(anyhow!("stack empty"))?;
         match elem.upgrade() {
             either::Either::Left(p) => {
                 let leaves = p.leaf_elements()?;
@@ -193,11 +193,11 @@ impl<'a> Cursor<'a> {
         }
     }
     fn kv_pair(&self) -> Result<KVPair<'a>> {
-        let elem = self.stack.last().ok_or("stack is empty")?;
+        let elem = self.stack.last().ok_or(anyhow!("stack empty"))?;
         Ok(KVPair::from(elem))
     }
     pub(crate) fn node(&mut self) -> Result<Node> {
-        let elem = &self.stack.last().ok_or("stack is empty")?;
+        let elem = &self.stack.last().ok_or(anyhow!("stack empty"))?;
         // leaf node is on the top of stack
         if elem.is_leaf() & elem.is_left() {
             Ok(elem.as_ref().right().unwrap().clone())
