@@ -1,4 +1,8 @@
-use std::{collections::HashMap, ops::Deref};
+use std::{
+    borrow::BorrowMut,
+    collections::{btree_map::ValuesMut, HashMap},
+    ops::Deref,
+};
 
 use either::Either;
 
@@ -41,8 +45,9 @@ pub(crate) struct Bucket {
     tx: WeakTransaction,
     fill_percent: f64,
     root: Option<Node>,
-    nodes: HashMap<PageId, Node>,
+    pub(crate) nodes: HashMap<PageId, Node>,
     page: Option<RawPtr<Page>>,
+    dirty: bool,
 }
 
 impl Bucket {
@@ -59,6 +64,7 @@ impl Bucket {
             page: None,
             fill_percent: Self::DEFAULT_FILL_PERCENT,
             tx,
+            dirty: false,
         }
     }
     // pub fn create_bucket(&self, key: String) {
@@ -115,6 +121,20 @@ impl Bucket {
         self.buckets.clear();
         self.root = None;
         self.nodes.clear();
+    }
+    pub(crate) fn rebalance(&mut self) {
+        for (key, b) in self.buckets.iter_mut() {
+            // recursively rebalance
+            if b.dirty {
+                self.dirty = true;
+                b.rebalance();
+            }
+        }
+        if self.dirty {
+            for node in self.nodes.borrow_mut().values_mut() {
+                node.rebalance();
+            }
+        }
     }
     // create a node from page
     pub(crate) fn node(&mut self, page_id: PageId, parent: WeakNode) -> Node {

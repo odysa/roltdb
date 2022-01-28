@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use fs2::FileExt;
 use std::{
     fs::{File, OpenOptions},
@@ -6,21 +5,72 @@ use std::{
     ops::Deref,
     path::Path,
     rc::{Rc, Weak},
-    sync::Mutex,
+    sync::{Mutex, RwLock},
 };
 
 use memmap::{Mmap, MmapOptions};
 
-use crate::{error::Result, free_list::FreeList, meta::Meta, page::Page};
+use crate::{
+    error::Result,
+    free_list::FreeList,
+    meta::Meta,
+    page::{self, Page, PageId},
+    transaction::Transaction,
+};
 
 #[derive(Debug)]
 pub struct DB(pub Rc<IDB>);
 #[derive(Debug)]
 pub struct WeakDB(pub Weak<IDB>);
 
+pub struct DBBuilder {
+    page_size: u64,
+    num_pages: u64,
+}
+
+impl DBBuilder {
+    pub fn page_size(mut self, size: u64) -> Self {
+        self.page_size = size;
+        self
+    }
+    pub fn num_pages(mut self, num: u64) -> Self {
+        if num < 4 {
+            panic!("Must have 4 pages or mode");
+        }
+        self.num_pages = num;
+        self
+    }
+    pub fn open<P: AsRef<Path>>(&self, p: P) -> Result<DB> {
+        let p = p.as_ref();
+        let f = if !p.exists() {
+            IDB::init_file(p, self.page_size, self.num_pages)?
+        } else {
+            OpenOptions::new().read(true).write(true).open(p)?
+        };
+        let db = IDB::open(f)?;
+        Ok(DB(Rc::new(db)))
+    }
+}
+impl DB {
+    pub fn open<P: AsRef<Path>>(&self, p: P) -> Result<DB> {
+        DBBuilder::default().open(p)
+    }
+    pub fn tx(&self, writable: bool) -> Result<Transaction> {
+        Transaction::new(&self.0, writable)
+    }
+}
+impl Default for DBBuilder {
+    fn default() -> Self {
+        Self {
+            page_size: page_size::get() as u64,
+            num_pages: 32,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct IDB {
-    mmap: Mmap,
+    mmap: RwLock<Mmap>,
     file: Mutex<File>,
     page_size: u64,
     free_list: FreeList,
@@ -38,13 +88,15 @@ impl IDB {
         };
 
         let mut db = IDB {
-            mmap,
+            mmap: RwLock::new(mmap),
             page_size,
             file: Mutex::new(file),
             free_list: FreeList::new(),
         };
         let meta = db.meta()?;
-        let free_list = Page::from_buf(&db.mmap, meta.free_list, page_size)
+        let mmap = db.mmap.read().unwrap();
+        let mmap = mmap.as_ref();
+        let free_list = Page::from_buf(mmap, meta.free_list, page_size)
             .free_list()
             .unwrap();
         if !free_list.is_empty() {
@@ -52,8 +104,9 @@ impl IDB {
         }
         Ok(db)
     }
-    fn meta(&self) -> Result<Meta> {
-        let buf = &self.mmap;
+    pub(crate) fn meta(&self) -> Result<Meta> {
+        let buf = self.mmap.read().unwrap();
+        let buf = buf.as_ref();
         let meta0 = Page::from_buf(buf, 0, self.page_size).meta()?;
         let meta1 = Page::from_buf(buf, 1, self.page_size).meta()?;
         let meta = match (meta0.validate(), meta1.validate()) {
@@ -70,6 +123,7 @@ impl IDB {
         };
         Ok(meta.clone())
     }
+    // init an empty file
     fn init_file(p: &Path, page_size: u64, page_num: u64) -> Result<File> {
         let mut file = OpenOptions::new()
             .create(true)
@@ -103,11 +157,23 @@ impl IDB {
         file.sync_all()?;
         Ok(file)
     }
+    // get a page from mmap
+    pub(crate) fn page(&self, id: PageId) -> &Page {
+        let page_size = self.page_size;
+        let mmap = self.mmap.read().unwrap().as_ref();
+        Page::from_buf(mmap, id, self.page_size)
+    }
 }
 
 impl Deref for DB {
     type Target = IDB;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl WeakDB {
+    pub(crate) fn upgrade(&self) -> Option<DB> {
+        self.0.upgrade().map(DB)
     }
 }

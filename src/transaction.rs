@@ -8,7 +8,7 @@ use std::{
 use crate::{
     bucket::Bucket,
     data::RawPtr,
-    db::WeakDB,
+    db::{WeakDB, DB},
     error::Result,
     meta::Meta,
     page::{Page, PageId},
@@ -19,11 +19,7 @@ pub struct Transaction(pub(crate) Rc<ITransaction>);
 
 #[derive(Debug, Clone)]
 pub struct WeakTransaction(pub(crate) Weak<ITransaction>);
-impl WeakTransaction {
-    pub(crate) fn upgrade(&self) -> Option<Transaction> {
-        self.0.upgrade().map(Transaction)
-    }
-}
+
 #[derive(Debug)]
 pub struct ITransaction {
     pub writable: bool,
@@ -35,26 +31,39 @@ pub struct ITransaction {
     // commit_handlers: Vec<Box<dyn Fn()>>, // call functions after commit
 }
 
-impl Transaction {
+impl ITransaction {
     pub fn new(db: WeakDB, writable: bool) -> Self {
-        Transaction(Rc::new(ITransaction {
+        let meta = match db.upgrade() {
+            None => Meta::default(),
+            Some(db) => db.meta().unwrap(),
+        };
+        if writable {
+            meta.tx_id += 1;
+        }
+        ITransaction {
             db: RwLock::new(db),
             managed: false,
             // commit_handlers: Vec::new(),
             pages: RwLock::new(HashMap::new()),
             writable,
-            meta: RwLock::new(Meta::default()),
+            meta: RwLock::new(meta),
             root: RwLock::new(Bucket::new(WeakTransaction::new())),
-        }))
+        }
     }
+
     pub fn page(&self, id: PageId) -> Result<RawPtr<Page>> {
-        let pages = self.0.pages.read().unwrap();
+        let pages = self.pages.read().unwrap();
         if let Some(page) = pages.get(&id) {
             Ok(page.clone())
         } else {
             // get page from mmap
-            todo!()
+            let page = self.db().page(id);
+            Ok(RawPtr::new(page))
         }
+    }
+
+    fn db(&self) -> DB {
+        self.db.read().unwrap().upgrade().unwrap()
     }
     pub fn rollback(&self) -> Result<()> {
         Ok(())
@@ -70,6 +79,13 @@ impl Transaction {
     }
 }
 
+impl Drop for ITransaction {
+    fn drop(&mut self) {
+        // rollback read-only tx
+        if !self.writable {}
+    }
+}
+
 impl Deref for Transaction {
     type Target = Rc<ITransaction>;
 
@@ -79,7 +95,10 @@ impl Deref for Transaction {
 }
 
 impl WeakTransaction {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(Weak::new())
+    }
+    pub(crate) fn upgrade(&self) -> Option<Transaction> {
+        self.0.upgrade().map(Transaction)
     }
 }

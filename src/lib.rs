@@ -1,14 +1,14 @@
 mod bucket;
+mod cursor;
 mod data;
+mod db;
 mod error;
 mod free_list;
 mod meta;
 mod node;
 mod page;
 mod transaction;
-mod cursor;
 mod utils;
-mod db;
 #[cfg(test)]
 mod tests {
     #[test]

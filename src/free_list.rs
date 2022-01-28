@@ -1,6 +1,6 @@
-use crate::Err;
-use crate::error::{RoltError, Result};
+use crate::error::{Result, RoltError};
 use crate::page::{Page, PageId};
+use crate::Err;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 #[derive(Debug)]
 pub(crate) struct FreeList {

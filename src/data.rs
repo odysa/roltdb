@@ -29,7 +29,7 @@ impl<T> RawPtr<T> {
     pub(crate) fn new(v: &T) -> RawPtr<T> {
         RawPtr(v as *const T)
     }
-    pub(crate) fn unwrap(&self) -> *const T{
+    pub(crate) fn unwrap(&self) -> *const T {
         self.0
     }
 }
