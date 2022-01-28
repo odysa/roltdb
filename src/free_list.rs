@@ -1,7 +1,9 @@
 use crate::error::{Result, RoltError};
 use crate::page::{Page, PageId};
+use crate::transaction::TXID;
 use crate::Err;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::io::Read;
 #[derive(Debug)]
 pub(crate) struct FreeList {
     pending: BTreeMap<PageId, Vec<PageId>>,
@@ -145,5 +147,23 @@ impl FreeList {
                 self.cache.insert(*id);
             }
         }
+    }
+    pub(crate) fn reload(&mut self, p: &Page) {
+        self.read(p);
+        let mut t_cache = HashSet::new();
+        for (_, ids) in self.pending.iter() {
+            for id in ids.iter() {
+                t_cache.insert(*id);
+            }
+        }
+        // add pages not in pending list to free pages
+        let mut free_pages = BTreeSet::new();
+        for id in self.free_pages.iter() {
+            if !t_cache.contains(id) {
+                free_pages.insert(*id);
+            }
+        }
+        self.free_pages = free_pages;
+        self.reindex();
     }
 }

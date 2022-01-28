@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Result,
     ops::Deref,
     rc::{Rc, Weak},
     sync::RwLock,
@@ -71,6 +72,21 @@ impl ITransaction {
         self.db.read().unwrap().upgrade().unwrap()
     }
     pub fn rollback(&self) -> Result<()> {
+        let db = self.db();
+        if self.writable {
+            let tx_id = self.id();
+            let mut free_list = db.free_list.write().unwrap();
+            free_list.rollback(tx_id);
+            let free_list_id = db.meta()?.free_list;
+            let free_list_page = db.page(free_list_id);
+            // reload free_list
+            free_list.reload(free_list_page);
+        }
+        // close tx
+        Ok(())
+    }
+    fn close(&self) -> Result<()> {
+        let mut db = self.db();
         Ok(())
     }
     pub fn writable(&self) -> bool {

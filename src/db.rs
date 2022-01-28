@@ -5,7 +5,7 @@ use std::{
     ops::Deref,
     path::Path,
     rc::{Rc, Weak},
-    sync::{Mutex, RwLock, RwLockReadGuard},
+    sync::{Mutex, RwLock},
 };
 
 use anyhow::anyhow;

@@ -1,8 +1,4 @@
-use std::{
-    borrow::BorrowMut,
-    collections::{btree_map::ValuesMut, HashMap},
-    ops::Deref,
-};
+use std::{borrow::BorrowMut, collections::HashMap, ops::Deref};
 
 use either::Either;
 
@@ -76,7 +72,13 @@ impl Bucket {
     //     // tx.upgrade().ok_or(Error::TxNotValid)
     //     Ok(())
     // }
-
+    fn create_bucket(&self, name: String) -> Result<&mut Bucket> {
+        if !self.tx()?.writable() {
+            panic!("tx not writable")
+        }
+        let tx = self.tx.clone();
+        todo!()
+    }
     // get finds the value by key
     pub fn get(&self, target: &[u8]) -> Option<&[u8]> {
         let pair = self.cursor().seek(target).unwrap();
@@ -116,12 +118,14 @@ impl Bucket {
             }
         }
     }
+
     pub fn clear(&mut self) {
         self.page = None;
         self.buckets.clear();
         self.root = None;
         self.nodes.clear();
     }
+
     pub(crate) fn rebalance(&mut self) {
         for (key, b) in self.buckets.iter_mut() {
             // recursively rebalance
