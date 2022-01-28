@@ -78,6 +78,9 @@ pub(crate) struct IDB {
 }
 
 impl IDB {
+    pub(crate) fn page_size(&self) -> u64 {
+        self.page_size
+    }
     pub fn open(file: File) -> Result<Self> {
         let page_size = page_size::get() as u64;
 

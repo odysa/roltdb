@@ -1,11 +1,3 @@
-use std::{
-    collections::HashMap,
-    fmt::Result,
-    ops::Deref,
-    rc::{Rc, Weak},
-    sync::RwLock,
-};
-
 use crate::{
     bucket::Bucket,
     data::RawPtr,
@@ -13,6 +5,13 @@ use crate::{
     error::Result,
     meta::Meta,
     page::{Page, PageId},
+};
+use anyhow::anyhow;
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    rc::{Rc, Weak},
+    sync::RwLock,
 };
 pub type TXID = u64;
 #[derive(Debug, Clone)]
@@ -71,6 +70,7 @@ impl ITransaction {
     pub(crate) fn db(&self) -> DB {
         self.db.read().unwrap().upgrade().unwrap()
     }
+
     pub fn rollback(&self) -> Result<()> {
         let db = self.db();
         if self.writable {
@@ -85,8 +85,26 @@ impl ITransaction {
         // close tx
         Ok(())
     }
-    fn close(&self) -> Result<()> {
-        let mut db = self.db();
+    // // close a transaction
+    // fn close(&self) -> Result<()> {
+    //     let mut db = self.db();
+    //     todo!()
+    //     Ok(())
+    // }
+    // write change to disk and update meta page
+    pub fn commit(&mut self) -> Result<()> {
+        if !self.writable() {
+            return Err(anyhow!("cannot commit read-only tx"));
+        }
+        {
+            // rebalance
+            let root = &mut *self
+                .root
+                .try_write()
+                .map_err(|_| anyhow!("unable to access root bucket"))?;
+            root.rebalance();
+            // spill
+        }
         Ok(())
     }
     pub fn writable(&self) -> bool {

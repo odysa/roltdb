@@ -41,15 +41,15 @@ impl Deref for WeakNode {
 }
 #[derive(Default, Debug, Clone)]
 pub(crate) struct InnerNode {
-    bucket: RawPtr<Bucket>,
-    page_id: RefCell<PageId>,
+    pub(crate) bucket: RawPtr<Bucket>,
+    pub(crate) page_id: RefCell<PageId>,
     unbalanced: bool,
     spilled: bool,
     pub(crate) inodes: RefCell<Vec<Inode>>,
     pub(crate) children: RefCell<Vec<Node>>,
     pub(crate) parent: RefCell<WeakNode>,
-    node_type: RefCell<NodeType>,
-    key: RefCell<Option<Entry>>,
+    pub(crate) node_type: RefCell<NodeType>,
+    pub(crate) key: RefCell<Option<Entry>>,
 }
 
 impl Node {
@@ -79,11 +79,16 @@ impl Node {
             NodeType::Leaf => true,
         }
     }
-    fn split(&mut self) {}
+    // break up a node into some smaller nodes
+    fn split(&mut self) -> Result<Node> {}
+
     // split a node into two nodes
     fn break_up(&mut self) -> Result<Option<Node>> {
         let new_node = Node::default();
         Ok(Some(new_node))
+    }
+    pub(crate) fn page_id(&self) -> u64 {
+        *self.page_id.borrow()
     }
     pub(crate) fn put(&mut self, old: &[u8], key: &[u8], value: &[u8], page_id: PageId) {
         let node = self;
@@ -210,6 +215,21 @@ impl Node {
             NodeType::Branch => BranchPageElement::SIZE,
             NodeType::Leaf => LeafPageElement::SIZE,
         }
+    }
+    // write nodes to dirty pages
+    pub(crate) fn spill(&mut self) -> Result<()> {
+        let page_size = self.bucket().tx()?.db().page_size();
+        {
+            // spill children
+            let mut children = self.children.borrow_mut();
+            children.sort_by(|a, b| a.inodes.borrow()[0].key().cmp(b.inodes.borrow()[0].key()));
+            for child in children.iter_mut() {
+                child.spill()?;
+            }
+            self.children.borrow_mut().clear();
+        }
+        {}
+        Ok(())
     }
 
     pub(crate) fn child_at(&mut self, index: usize) -> Result<Node> {

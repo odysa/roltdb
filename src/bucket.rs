@@ -1,6 +1,6 @@
-use std::{borrow::BorrowMut, collections::HashMap, ops::Deref};
-
+use anyhow::anyhow;
 use either::Either;
+use std::{borrow::BorrowMut, collections::HashMap, ops::Deref};
 
 use crate::{
     cursor::Cursor,
@@ -9,6 +9,7 @@ use crate::{
     node::{Node, WeakNode},
     page::{Page, PageId},
     transaction::{Transaction, WeakTransaction},
+    utils::struct_to_slice,
     Err,
 };
 
@@ -125,9 +126,46 @@ impl Bucket {
         self.root = None;
         self.nodes.clear();
     }
+    // write nodes to dirty pages
+    pub(crate) fn spill(&mut self) -> Result<()> {
+        // todo: not to clone this
+        let mut buckets = self.buckets.clone();
 
+        for (name, child) in buckets.iter_mut() {
+            child.spill()?;
+            let u8_name = name.as_bytes();
+            let value = unsafe {
+                let bytes = struct_to_slice(&child.bucket);
+                bytes.clone().to_vec()
+            };
+            if child.root.is_none() {
+                continue;
+            }
+            // update
+
+            let mut c = self.cursor();
+            let pair = c.seek(u8_name)?;
+            if Some(u8_name) != pair.key {
+                return Err(anyhow::anyhow!("bucket header not match"));
+            }
+            let node = c.node()?;
+            node.put(u8_name, u8_name, value.as_slice(), 0);
+        }
+        //
+        if !self.root.is_none() {
+            let root = self.root.clone().ok_or(anyhow!("root is empty"))?;
+            root.spill()?;
+            // spill root node
+            self.root = Some(root);
+
+            let page_id = self.root.as_ref().unwrap().page_id();
+            // todo
+            self.bucket.root = page_id;
+        }
+        Ok(())
+    }
     pub(crate) fn rebalance(&mut self) {
-        for (key, b) in self.buckets.iter_mut() {
+        for (_, b) in self.buckets.iter_mut() {
             // recursively rebalance
             if b.dirty {
                 self.dirty = true;
