@@ -42,13 +42,13 @@ impl Deref for WeakNode {
 #[derive(Default, Debug, Clone)]
 pub(crate) struct InnerNode {
     bucket: RawPtr<Bucket>,
-    page_id: PageId,
+    page_id: RefCell<PageId>,
     unbalanced: bool,
     spilled: bool,
     pub(crate) inodes: RefCell<Vec<Inode>>,
     pub(crate) children: RefCell<Vec<Node>>,
     pub(crate) parent: RefCell<WeakNode>,
-    node_type: NodeType,
+    node_type: RefCell<NodeType>,
     key: RefCell<Option<Entry>>,
 }
 
@@ -74,7 +74,7 @@ impl Node {
         self.children.borrow().len()
     }
     pub(crate) fn is_leaf(&self) -> bool {
-        match self.node_type {
+        match *self.node_type.borrow() {
             NodeType::Branch => false,
             NodeType::Leaf => true,
         }
@@ -117,7 +117,7 @@ impl Node {
     pub fn read(&mut self, p: &Page) -> Result<()> {
         let node = self;
         let count = p.count as usize;
-        node.inodes.replace(match node.node_type {
+        node.inodes.replace(match *node.node_type.borrow() {
             NodeType::Branch => p
                 .branch_elements()?
                 .iter()
@@ -150,7 +150,7 @@ impl Node {
     // write node to page
     pub fn write(&self, p: &mut Page) -> Result<()> {
         let node = self;
-        p.page_type = match node.node_type {
+        p.page_type = match *node.node_type.borrow() {
             NodeType::Branch => Page::BRANCH_PAGE,
             NodeType::Leaf => Page::LEAF_PAGE,
         };
@@ -168,7 +168,7 @@ impl Node {
             let offset = self.page_elem_size() * inodes.len();
             p.ptr_mut().add(offset)
         };
-        match node.node_type {
+        match *node.node_type.borrow() {
             NodeType::Branch => {
                 let branches = p.branch_elements_mut()?;
                 for (i, inode) in node.inodes.borrow().iter().enumerate() {
@@ -206,56 +206,57 @@ impl Node {
         Ok(())
     }
     fn page_elem_size(&self) -> usize {
-        match self.node_type {
+        match *self.node_type.borrow() {
             NodeType::Branch => BranchPageElement::SIZE,
             NodeType::Leaf => LeafPageElement::SIZE,
         }
     }
 
     pub(crate) fn child_at(&mut self, index: usize) -> Result<Node> {
-        let inode = self
-            .inodes
-            .borrow()
-            .get(index)
-            .ok_or(anyhow!("inode index not valid"))?;
+        let inodes = self.inodes.borrow();
+        let inode = inodes.get(index).ok_or(anyhow!("inode index not valid"))?;
         let id = inode.page_id().unwrap();
         Ok(self.bucket_mut().node(id, WeakNode::from(self)))
     }
 
-    pub(crate) fn rebalance(&mut self) {
+    pub(crate) fn rebalance(&mut self) -> Result<()> {
         if !self.unbalanced {
-            return;
+            return Ok(());
         }
-        self.unbalanced = false;
+        // self.unbalanced = false;
         // this node is root
         if self.parent().is_none() {
             let mut inodes = self.inodes.borrow_mut();
             // root node is branch and only has one inode
             if !self.is_leaf() && inodes.len() == 1 {
                 // move up child
-                let child = self
+                let mut child = self
                     .bucket_mut()
                     .node(inodes[0].page_id().unwrap(), WeakNode::from(self));
 
-                self.node_type = child.node_type;
+                *self.node_type.borrow_mut() = *child.node_type.borrow();
                 *inodes = child.inodes.borrow_mut().drain(..).collect();
                 *self.children.borrow_mut() = child.children.borrow_mut().drain(..).collect();
                 {
                     // assign new parent to children of new parent
                     for inode in inodes.iter() {
-                        if let Some(child) = self.bucket().nodes.get_mut(&inode.page_id().unwrap())
+                        if let Some(child) =
+                            self.bucket_mut().nodes.get_mut(&inode.page_id().unwrap())
                         {
                             *child.parent.borrow_mut() = WeakNode::from(self);
                         }
                     }
                 }
                 *child.parent.borrow_mut() = WeakNode::new();
-                self.bucket().nodes.borrow_mut().remove(&child.page_id);
+                self.bucket_mut()
+                    .nodes
+                    .borrow_mut()
+                    .remove(&child.page_id.borrow());
                 // free child page
-                child.free();
+                child.free()?;
             }
 
-            return;
+            return Ok(());
         }
 
         // if node has no keys
@@ -264,17 +265,20 @@ impl Node {
             let parent = &mut self.parent().unwrap();
             // remove this node from its parent
 
-            self.bucket_mut().nodes.borrow_mut().remove(&self.page_id);
+            self.bucket_mut()
+                .nodes
+                .borrow_mut()
+                .remove(&self.page_id.borrow());
             // remove this node from its parent
             parent.remove(&key);
             parent.remove_child(self);
             self.free();
             parent.rebalance();
-            return;
+            return Ok(());
         }
 
         {
-            let (next_sibling, sibling) = match self.parent().unwrap().child_index(self) {
+            let (next_sibling, mut sibling) = match self.parent().unwrap().child_index(self) {
                 Some(i) => {
                     if i == 0 {
                         (true, self.next_sibling().unwrap())
@@ -306,11 +310,11 @@ impl Node {
                     .borrow_mut()
                     .append(&mut *sibling.inodes.borrow_mut());
                 // remove sibling from parent
-                let mut parent = &mut self.parent().unwrap();
+                let parent = &mut self.parent().unwrap();
                 parent.remove(&sibling.key.borrow().as_ref().unwrap());
                 parent.remove_child(&sibling);
                 // remove sibling from bucket
-                self.bucket_mut().nodes.remove(&sibling.page_id);
+                self.bucket_mut().nodes.remove(&sibling.page_id.borrow());
                 sibling.free();
             } else {
                 // combine this node into sibling
@@ -328,15 +332,18 @@ impl Node {
                     .inodes
                     .borrow_mut()
                     .append(&mut self.inodes.borrow_mut());
-                let parent = &mut self.parent().unwrap();
-                parent.remove(self.key.borrow().unwrap().as_ref());
+                let parent = &mut self.parent().ok_or(anyhow!("parent not valid"))?;
+                parent.remove(self.key.borrow().as_ref().unwrap());
                 parent.remove_child(&self);
 
-                self.bucket_mut().nodes.remove(&self.page_id);
+                self.bucket_mut().nodes.remove(&self.page_id.borrow());
                 self.free();
             }
-            self.parent().unwrap().rebalance();
+            self.parent()
+                .ok_or(anyhow!("parent not valid"))?
+                .rebalance();
         }
+        Ok(())
     }
     // return next sibling of this node
     fn next_sibling(&self) -> Option<Node> {
@@ -356,7 +363,7 @@ impl Node {
     fn prev_sibling(&self) -> Option<Node> {
         match self.parent() {
             None => None,
-            Some(parent) => {
+            Some(mut parent) => {
                 let index = parent.child_index(self);
                 match index {
                     None => None,
@@ -392,7 +399,7 @@ impl Node {
         match inodes.binary_search_by(|i| i.key().as_slice().cmp(key)) {
             Ok(i) => {
                 inodes.remove(i);
-                self.unbalanced = true;
+                // self.unbalanced = true;
             }
             Err(_) => {}
         };
@@ -401,12 +408,23 @@ impl Node {
     fn parent(&self) -> Option<Node> {
         self.parent.borrow().upgrade()
     }
-    fn free(&mut self) {
-        if self.page_id != 0 {
-            self.page_id = 0;
-            // add a free page to free list
-            todo!()
+
+    fn free(&mut self) -> Result<()> {
+        if *self.page_id.borrow() != 0 {
+            // add page to free list
+            let b = self.bucket_mut();
+            let tx = b.tx()?;
+            let db = tx.db();
+            let mut free_lit = db
+                .free_list
+                .write()
+                .map_err(|_| anyhow!("unable to write free list"))?;
+            let page = tx.page(*self.page_id.borrow())?;
+            // free node's page
+            free_lit.free(tx.id(), &page)?;
+            *self.page_id.borrow_mut() = 0;
         }
+        Ok(())
     }
 }
 
@@ -417,7 +435,7 @@ impl Deref for Node {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum NodeType {
     Branch,
     Leaf,

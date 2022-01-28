@@ -31,9 +31,15 @@ pub struct ITransaction {
     // commit_handlers: Vec<Box<dyn Fn()>>, // call functions after commit
 }
 
+impl Transaction {
+    pub fn new(db: WeakDB, writable: bool) -> Self {
+        Self(Rc::new(ITransaction::new(db, writable)))
+    }
+}
+
 impl ITransaction {
     pub fn new(db: WeakDB, writable: bool) -> Self {
-        let meta = match db.upgrade() {
+        let mut meta = match db.upgrade() {
             None => Meta::default(),
             Some(db) => db.meta().unwrap(),
         };
@@ -57,12 +63,11 @@ impl ITransaction {
             Ok(page.clone())
         } else {
             // get page from mmap
-            let page = self.db().page(id);
-            Ok(RawPtr::new(page))
+            Ok(RawPtr::new(self.db().page(id)))
         }
     }
 
-    fn db(&self) -> DB {
+    pub(crate) fn db(&self) -> DB {
         self.db.read().unwrap().upgrade().unwrap()
     }
     pub fn rollback(&self) -> Result<()> {

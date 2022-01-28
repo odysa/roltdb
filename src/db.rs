@@ -5,16 +5,17 @@ use std::{
     ops::Deref,
     path::Path,
     rc::{Rc, Weak},
-    sync::{Mutex, RwLock},
+    sync::{Mutex, RwLock, RwLockReadGuard},
 };
 
+use anyhow::anyhow;
 use memmap::{Mmap, MmapOptions};
 
 use crate::{
     error::Result,
     free_list::FreeList,
     meta::Meta,
-    page::{self, Page, PageId},
+    page::{Page, PageId},
     transaction::Transaction,
 };
 
@@ -55,8 +56,8 @@ impl DB {
     pub fn open<P: AsRef<Path>>(&self, p: P) -> Result<DB> {
         DBBuilder::default().open(p)
     }
-    pub fn tx(&self, writable: bool) -> Result<Transaction> {
-        Transaction::new(&self.0, writable)
+    pub fn tx(&self, writable: bool) -> Transaction {
+        Transaction::new(WeakDB::from(self), writable)
     }
 }
 impl Default for DBBuilder {
@@ -69,11 +70,11 @@ impl Default for DBBuilder {
 }
 
 #[derive(Debug)]
-pub struct IDB {
+pub(crate) struct IDB {
     mmap: RwLock<Mmap>,
     file: Mutex<File>,
     page_size: u64,
-    free_list: FreeList,
+    pub(crate) free_list: RwLock<FreeList>,
 }
 
 impl IDB {
@@ -91,16 +92,19 @@ impl IDB {
             mmap: RwLock::new(mmap),
             page_size,
             file: Mutex::new(file),
-            free_list: FreeList::new(),
+            free_list: RwLock::new(FreeList::new()),
         };
         let meta = db.meta()?;
-        let mmap = db.mmap.read().unwrap();
-        let mmap = mmap.as_ref();
-        let free_list = Page::from_buf(mmap, meta.free_list, page_size)
+        let buf = db.mmap.read().unwrap();
+        let buf = buf.as_ref();
+        let free_list = Page::from_buf(buf, meta.free_list, page_size)
             .free_list()
             .unwrap();
         if !free_list.is_empty() {
-            db.free_list.init(free_list);
+            db.free_list
+                .write()
+                .map_err(|_| anyhow!("unable to write freelist"))?
+                .init(free_list);
         }
         Ok(db)
     }
@@ -161,7 +165,7 @@ impl IDB {
     pub(crate) fn page(&self, id: PageId) -> &Page {
         let page_size = self.page_size;
         let mmap = self.mmap.read().unwrap().as_ref();
-        Page::from_buf(mmap, id, self.page_size)
+        Page::from_buf(mmap, id, page_size)
     }
 }
 
@@ -175,5 +179,11 @@ impl Deref for DB {
 impl WeakDB {
     pub(crate) fn upgrade(&self) -> Option<DB> {
         self.0.upgrade().map(DB)
+    }
+}
+
+impl From<&DB> for WeakDB {
+    fn from(db: &DB) -> Self {
+        Self(Rc::downgrade(&db.0))
     }
 }
