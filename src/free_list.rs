@@ -1,9 +1,7 @@
 use crate::error::{Result, RoltError};
 use crate::page::{Page, PageId};
-use crate::transaction::TXID;
 use crate::Err;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::io::Read;
 #[derive(Debug)]
 pub(crate) struct FreeList {
     pending: BTreeMap<PageId, Vec<PageId>>,

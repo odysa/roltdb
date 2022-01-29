@@ -3,7 +3,7 @@ use std::{hash::Hasher, intrinsics::copy_nonoverlapping, mem::size_of, slice::fr
 
 use crate::{
     bucket::IBucket,
-    error::{Result, RoltError},
+    error::Result,
     page::{Page, PageId},
     transaction::TXID,
     utils::struct_to_slice,
