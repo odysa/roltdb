@@ -6,6 +6,7 @@ use std::{
     intrinsics::copy_nonoverlapping,
     ops::{Deref, DerefMut},
     rc::{Rc, Weak},
+    vec,
 };
 
 use crate::{
@@ -53,6 +54,14 @@ pub(crate) struct InnerNode {
 }
 
 impl Node {
+    const MIN_KEY: usize = 2;
+    pub(crate) fn new(b: RawPtr<Bucket>, node_type: NodeType) -> Node {
+        Node(Rc::new(InnerNode {
+            bucket: b,
+            node_type: RefCell::new(node_type),
+            ..Default::default()
+        }))
+    }
     pub fn default() -> Node {
         Node {
             ..Default::default()
@@ -80,16 +89,113 @@ impl Node {
         }
     }
     // break up a node into some smaller nodes
-    fn split(&mut self) -> Result<Node> {}
+    fn split(&mut self) -> Result<Option<Node>> {
+        let mut nodes = vec![self.clone()];
+        let mut node = self.clone();
+        loop {
+            let new_node = node.break_up()?;
+            nodes.push(node);
+            match new_node {
+                Some(n) => {
+                    node = n.clone();
+                }
+                // nothing to break
+                None => break,
+            }
+        }
+        let parent = match self.parent() {
+            Some(p) => {
+                // remove borrow
+                {
+                    let mut children = p.children.borrow_mut();
+                    let index = children.iter().position(|ch| Rc::ptr_eq(self, ch));
+                    // remove this old node from parent
+                    if let Some(i) = index {
+                        children.remove(i);
+                    }
+                    // insert splitted new nodes to children of parent
+                    for node in nodes {
+                        *node.parent.borrow_mut() = WeakNode::from(&p);
+                        children.push(node);
+                    }
+                }
+                p
+            }
+            None => {
+                let p = Node::default();
+                *p.children.borrow_mut() = nodes;
+                for child in p.children.borrow_mut().iter_mut() {
+                    *child.parent.borrow_mut() = WeakNode::from(&p);
+                }
+                p
+            }
+        };
+        Ok(Some(parent))
+    }
 
     // split a node into two nodes
     fn break_up(&mut self) -> Result<Option<Node>> {
-        let new_node = Node::default();
+        let inodes = self.inodes.borrow_mut();
+        // do not need to break up this node
+        if inodes.len() <= Self::MIN_KEY || self.fit_page_size() {
+            return Ok(None);
+        }
+        let mut fill_percent = self.bucket().fill_percent;
+        // bound fill_percent
+        if fill_percent > Bucket::MAX_FILL_PERCENT {
+            fill_percent = Bucket::MAX_FILL_PERCENT;
+        } else if fill_percent < Bucket::MIN_FILL_PERCENT {
+            fill_percent = Bucket::MIN_FILL_PERCENT;
+        }
+
+        let page_size = self.page_size() as usize;
+        let threshold = ((page_size as f64) * fill_percent) as usize;
+        let (index, _) = self.split_index(threshold);
+
+        let new_node = Node::new(self.bucket.clone(), NodeType::Leaf);
+        // move some inodes to new node
+        let inodes: Vec<Inode> = self.inodes.borrow_mut().drain(index..).collect();
+        *new_node.inodes.borrow_mut() = inodes;
+
         Ok(Some(new_node))
     }
+    // find a index to split a node to fill threshold
+    fn split_index(&self, threshold: usize) -> (usize, usize) {
+        let mut index = 0;
+        let mut size = Page::PAGE_HEADER_SIZE();
+        let elem_size = self.page_elem_size();
+        let inodes = self.inodes.borrow();
+        let len = inodes.len() - Self::MIN_KEY;
+        for (i, inode) in inodes.iter().enumerate().take(len) {
+            index = i;
+            let e_size = elem_size + inode.key().len() + inode.value().unwrap().len();
+            // have minimum number of keys
+            if index >= Self::MIN_KEY && size + e_size > threshold {
+                break;
+            }
+            size += e_size;
+        }
+        return (index, size);
+    }
+    // whether this node fit one page
+    fn fit_page_size(&self) -> bool {
+        let head_size = Page::PAGE_HEADER_SIZE();
+        let mut size = head_size;
+        let elem_size = self.page_elem_size();
+        let page_size = self.page_size() as usize;
+        for inode in self.inodes.borrow().iter() {
+            size += elem_size + inode.key().len() as usize + inode.value().unwrap().len();
+            if size >= page_size {
+                return false;
+            }
+        }
+        true
+    }
+
     pub(crate) fn page_id(&self) -> u64 {
         *self.page_id.borrow()
     }
+
     pub(crate) fn put(&mut self, old: &[u8], key: &[u8], value: &[u8], page_id: PageId) {
         let node = self;
         let mut inodes = node.inodes.borrow_mut();
@@ -216,9 +322,12 @@ impl Node {
             NodeType::Leaf => LeafPageElement::SIZE,
         }
     }
+    fn page_size(&self) -> u64 {
+        self.bucket().tx().unwrap().db().page_size()
+    }
     // write nodes to dirty pages
     pub(crate) fn spill(&mut self) -> Result<()> {
-        let page_size = self.bucket().tx()?.db().page_size();
+        let page_size = self.page_size();
         {
             // spill children
             let mut children = self.children.borrow_mut();
@@ -456,7 +565,7 @@ impl Deref for Node {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum NodeType {
+pub(crate) enum NodeType {
     Branch,
     Leaf,
 }

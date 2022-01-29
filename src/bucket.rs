@@ -40,7 +40,7 @@ pub(crate) struct Bucket {
     // nested bucket
     buckets: HashMap<String, Bucket>,
     tx: WeakTransaction,
-    fill_percent: f64,
+    pub(crate) fill_percent: f64,
     root: Option<Node>,
     pub(crate) nodes: HashMap<PageId, Node>,
     page: Option<RawPtr<Page>>,
@@ -48,7 +48,9 @@ pub(crate) struct Bucket {
 }
 
 impl Bucket {
-    const DEFAULT_FILL_PERCENT: f64 = 0.5;
+    pub(crate) const DEFAULT_FILL_PERCENT: f64 = 0.5;
+    pub(crate) const MIN_FILL_PERCENT: f64 = 0.1;
+    pub(crate) const MAX_FILL_PERCENT: f64 = 1.0;
     pub fn tx(&self) -> Result<Transaction> {
         self.tx.upgrade().ok_or(RoltError::TxNotValid.into())
     }
@@ -148,12 +150,12 @@ impl Bucket {
             if Some(u8_name) != pair.key {
                 return Err(anyhow::anyhow!("bucket header not match"));
             }
-            let node = c.node()?;
+            let mut node = c.node()?;
             node.put(u8_name, u8_name, value.as_slice(), 0);
         }
         //
         if !self.root.is_none() {
-            let root = self.root.clone().ok_or(anyhow!("root is empty"))?;
+            let mut root = self.root.clone().ok_or(anyhow!("root is empty"))?;
             root.spill()?;
             // spill root node
             self.root = Some(root);

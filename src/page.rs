@@ -1,5 +1,7 @@
 use std::{mem::size_of, slice::from_raw_parts};
 
+use memoffset::offset_of;
+
 use crate::{
     error::{Result, RoltError},
     meta::Meta,
@@ -14,8 +16,8 @@ pub struct Page {
     pub(crate) count: u16,
     pub(crate) overflow: u32,
     pub(crate) id: PageId,
-    ptr: u8,
     pub(crate) page_type: PageType,
+    ptr: u8,
 }
 
 impl Page {
@@ -38,6 +40,10 @@ impl Page {
     pub fn ptr_mut(&mut self) -> *mut u8 {
         &mut self.ptr as *mut u8
     }
+    pub(crate) fn PAGE_HEADER_SIZE() -> usize {
+        offset_of!(Self, ptr)
+    }
+
     pub(crate) fn is_leaf(&self) -> bool {
         self.page_type == Self::LEAF_PAGE
     }
@@ -112,6 +118,7 @@ impl Page {
             Ok(&mut *elem)
         }
     }
+    // get a page from buffer
     pub(crate) fn from_buf(buf: &[u8], id: PageId, page_size: u64) -> &Page {
         unsafe { &*(&buf[(id * page_size) as usize] as *const u8 as *const Page) }
     }

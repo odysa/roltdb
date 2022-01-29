@@ -70,7 +70,7 @@ impl Default for DBBuilder {
 }
 
 #[derive(Debug)]
-pub(crate) struct IDB {
+pub struct IDB {
     mmap: RwLock<Mmap>,
     file: Mutex<File>,
     page_size: u64,
@@ -91,23 +91,25 @@ impl IDB {
                 .map(&file)?
         };
 
-        let mut db = IDB {
+        let db = IDB {
             mmap: RwLock::new(mmap),
             page_size,
             file: Mutex::new(file),
             free_list: RwLock::new(FreeList::new()),
         };
-        let meta = db.meta()?;
-        let buf = db.mmap.read().unwrap();
-        let buf = buf.as_ref();
-        let free_list = Page::from_buf(buf, meta.free_list, page_size)
-            .free_list()
-            .unwrap();
-        if !free_list.is_empty() {
-            db.free_list
-                .write()
-                .map_err(|_| anyhow!("unable to write freelist"))?
-                .init(free_list);
+        {
+            let meta = db.meta()?;
+            let buf = db.mmap.read().unwrap();
+            let buf = buf.as_ref();
+            let free_list = Page::from_buf(buf, meta.free_list, page_size)
+                .free_list()
+                .unwrap();
+            if !free_list.is_empty() {
+                db.free_list
+                    .write()
+                    .map_err(|_| anyhow!("unable to write freelist"))?
+                    .init(free_list);
+            }
         }
         Ok(db)
     }
@@ -164,11 +166,15 @@ impl IDB {
         file.sync_all()?;
         Ok(file)
     }
+
     // get a page from mmap
     pub(crate) fn page(&self, id: PageId) -> &Page {
         let page_size = self.page_size;
-        let mmap = self.mmap.read().unwrap().as_ref();
-        Page::from_buf(mmap, id, page_size)
+        self.page_from_buf(id, page_size)
+    }
+    pub(crate) fn page_from_buf(&self, id: PageId, page_size: u64) -> &Page {
+        let buf = self.mmap.try_read().unwrap();
+        unsafe { &*(&buf[(id * page_size) as usize] as *const u8 as *const Page) }
     }
 }
 
