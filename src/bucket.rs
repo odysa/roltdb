@@ -36,7 +36,7 @@ use crate::{
 // a collection of kev-value pairs
 #[derive(Debug, Clone)]
 pub(crate) struct Bucket {
-    bucket: IBucket,
+    pub(crate) bucket: IBucket,
     // nested bucket
     buckets: HashMap<String, Bucket>,
     tx: WeakTransaction,

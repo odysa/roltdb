@@ -14,7 +14,7 @@ pub type PageId = u64;
 #[derive(Debug, Clone)]
 pub struct Page {
     pub(crate) count: u16,
-    pub(crate) overflow: u32,
+    pub(crate) overflow: u32, // 0 means page allocated in one page block, 1 means 2 blocks
     pub(crate) id: PageId,
     pub(crate) page_type: PageType,
     ptr: u8,
@@ -121,6 +121,9 @@ impl Page {
     // get a page from buffer
     pub(crate) fn from_buf(buf: &[u8], id: PageId, page_size: u64) -> &Page {
         unsafe { &*(&buf[(id * page_size) as usize] as *const u8 as *const Page) }
+    }
+    pub(crate) fn from_buf_mut(buf: &[u8], id: PageId, page_size: u64) -> &mut Page {
+        unsafe { &mut *(&buf[(id * page_size) as usize] as *const u8 as *mut Page) }
     }
 }
 

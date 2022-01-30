@@ -5,7 +5,7 @@ use parking_lot::{Mutex, RwLock};
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
-    ops::Deref,
+    ops::{Deref, DerefMut},
     path::Path,
     rc::{Rc, Weak},
 };
@@ -57,6 +57,13 @@ impl DB {
     }
     pub fn tx(&self, writable: bool) -> Transaction {
         Transaction::new(WeakDB::from(self), writable)
+    }
+    pub(crate) fn write_at<T: Read>(&mut self, addr: u64, mut buf: T) -> Result<()> {
+        let mut file = self.file.lock(); // unlock automatically
+        file.seek(SeekFrom::Start(addr))
+            .map_err(|_| anyhow!("can't write db file at give position"))?;
+        std::io::copy(&mut buf, &mut *file)?;
+        Ok(())
     }
 }
 impl Default for DBBuilder {
@@ -171,14 +178,6 @@ impl IDB {
     pub(crate) fn page_from_buf(&self, id: PageId, page_size: u64) -> &Page {
         let buf = self.mmap.read();
         unsafe { &*(&buf[(id * page_size) as usize] as *const u8 as *const Page) }
-    }
-
-    pub(crate) fn write_at<T: Read>(&mut self, addr: u64, mut buf: T) -> Result<()> {
-        let mut file = self.file.lock();
-        file.seek(SeekFrom::Start(addr))
-            .map_err(|_| anyhow!("can't write db file"))?;
-        std::io::copy(&mut buf, &mut *file)?;
-        Ok(())
     }
 }
 

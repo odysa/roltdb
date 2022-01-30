@@ -10,8 +10,10 @@ use anyhow::anyhow;
 use parking_lot::RwLock;
 use std::{
     collections::HashMap,
+    io::Cursor,
     ops::Deref,
     rc::{Rc, Weak},
+    slice::from_raw_parts,
 };
 pub type TXID = u64;
 #[derive(Debug, Clone)]
@@ -103,6 +105,15 @@ impl ITransaction {
             // spill
             root.spill()?;
         }
+        {
+            let mut meta = self.meta.write();
+            meta.root.root = self.root.read().bucket.root;
+            let db = self.db();
+            let mut free_list = db.free_list.write();
+            let p = db.page(meta.free_list);
+            // free free_list
+            free_list.free(meta.tx_id, p)?;
+        }
         Ok(())
     }
     // write pages to disk
@@ -112,17 +123,40 @@ impl ITransaction {
         pages.sort_by(|x, y| x.0.cmp(&y.0));
         let mut db = self.db();
         let page_size = db.page_size();
-        for (page_id, p) in pages {}
+        // write pages to file
+        for (page_id, p) in pages {
+            let size = ((p.overflow + 1) as u64) * page_size;
+            let offset = page_id * page_size;
+            let buf = unsafe { from_raw_parts(p.ptr(), size as usize) };
+            db.write_at(offset, Cursor::new(buf))?;
+        }
+
+        Ok(())
+    }
+    // write meta to disk
+    fn write_meta(&mut self) -> Result<()> {
+        let mut meta = self.meta.write();
+        let mut db = self.db();
+        let page_size = db.page_size();
+        let buf: Vec<u8> = vec![0; page_size as usize];
+        let p = Page::from_buf_mut(&buf, meta.page_id, page_size);
+        meta.write(p)?;
+        let offset = meta.page_id * page_size;
+        db.write_at(offset, Cursor::new(buf))?;
+        Ok(())
+    }
+    // write free_list to disk
+    fn write_free_list(&mut self) -> Result<()> {
         Ok(())
     }
     pub fn writable(&self) -> bool {
         self.writable
     }
     pub(crate) fn id(&self) -> TXID {
-        self.meta.try_read().unwrap().tx_id
+        self.meta.read().tx_id
     }
     pub(crate) fn page_id(&self) -> PageId {
-        self.meta.try_read().unwrap().page_id
+        self.meta.read().page_id
     }
 }
 
