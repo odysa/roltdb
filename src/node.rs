@@ -544,10 +544,7 @@ impl Node {
             let b = self.bucket_mut();
             let tx = b.tx()?;
             let db = tx.db();
-            let mut free_lit = db
-                .free_list
-                .write()
-                .map_err(|_| anyhow!("unable to write free list"))?;
+            let mut free_lit = db.free_list.write();
             let page = tx.page(*self.page_id.borrow())?;
             // free node's page
             free_lit.free(tx.id(), &page)?;

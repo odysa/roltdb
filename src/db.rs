@@ -1,15 +1,14 @@
+use anyhow::anyhow;
 use fs2::FileExt;
+use memmap::{Mmap, MmapOptions};
+use parking_lot::{Mutex, RwLock};
 use std::{
     fs::{File, OpenOptions},
-    io::Write,
+    io::{Read, Seek, SeekFrom, Write},
     ops::Deref,
     path::Path,
     rc::{Rc, Weak},
-    sync::{Mutex, RwLock},
 };
-
-use anyhow::anyhow;
-use memmap::{Mmap, MmapOptions};
 
 use crate::{
     error::Result,
@@ -99,22 +98,19 @@ impl IDB {
         };
         {
             let meta = db.meta()?;
-            let buf = db.mmap.read().unwrap();
+            let buf = db.mmap.read();
             let buf = buf.as_ref();
             let free_list = Page::from_buf(buf, meta.free_list, page_size)
                 .free_list()
                 .unwrap();
             if !free_list.is_empty() {
-                db.free_list
-                    .write()
-                    .map_err(|_| anyhow!("unable to write freelist"))?
-                    .init(free_list);
+                db.free_list.write().init(free_list);
             }
         }
         Ok(db)
     }
     pub(crate) fn meta(&self) -> Result<Meta> {
-        let buf = self.mmap.read().unwrap();
+        let buf = self.mmap.read();
         let buf = buf.as_ref();
         let meta0 = Page::from_buf(buf, 0, self.page_size).meta()?;
         let meta1 = Page::from_buf(buf, 1, self.page_size).meta()?;
@@ -173,8 +169,16 @@ impl IDB {
         self.page_from_buf(id, page_size)
     }
     pub(crate) fn page_from_buf(&self, id: PageId, page_size: u64) -> &Page {
-        let buf = self.mmap.try_read().unwrap();
+        let buf = self.mmap.read();
         unsafe { &*(&buf[(id * page_size) as usize] as *const u8 as *const Page) }
+    }
+
+    pub(crate) fn write_at<T: Read>(&mut self, addr: u64, mut buf: T) -> Result<()> {
+        let mut file = self.file.lock();
+        file.seek(SeekFrom::Start(addr))
+            .map_err(|_| anyhow!("can't write db file"))?;
+        std::io::copy(&mut buf, &mut *file)?;
+        Ok(())
     }
 }
 

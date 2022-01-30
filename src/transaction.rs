@@ -7,11 +7,11 @@ use crate::{
     page::{Page, PageId},
 };
 use anyhow::anyhow;
+use parking_lot::RwLock;
 use std::{
     collections::HashMap,
     ops::Deref,
     rc::{Rc, Weak},
-    sync::RwLock,
 };
 pub type TXID = u64;
 #[derive(Debug, Clone)]
@@ -58,7 +58,7 @@ impl ITransaction {
     }
 
     pub fn page(&self, id: PageId) -> Result<RawPtr<Page>> {
-        let pages = self.pages.read().unwrap();
+        let pages = self.pages.read();
         if let Some(page) = pages.get(&id) {
             Ok(page.clone())
         } else {
@@ -68,14 +68,14 @@ impl ITransaction {
     }
 
     pub(crate) fn db(&self) -> DB {
-        self.db.read().unwrap().upgrade().unwrap()
+        self.db.read().upgrade().unwrap()
     }
 
     pub fn rollback(&self) -> Result<()> {
         let db = self.db();
         if self.writable {
             let tx_id = self.id();
-            let mut free_list = db.free_list.write().unwrap();
+            let mut free_list = db.free_list.write();
             free_list.rollback(tx_id);
             let free_list_id = db.meta()?.free_list;
             let free_list_page = db.page(free_list_id);
@@ -97,14 +97,22 @@ impl ITransaction {
             return Err(anyhow!("cannot commit read-only tx"));
         }
         {
+            let root = &mut *self.root.try_write().unwrap();
             // rebalance
-            let root = &mut *self
-                .root
-                .try_write()
-                .map_err(|_| anyhow!("unable to access root bucket"))?;
             root.rebalance();
             // spill
+            root.spill()?;
         }
+        Ok(())
+    }
+    // write pages to disk
+    fn write_page(&mut self) -> Result<()> {
+        let mut pages: Vec<(PageId, RawPtr<Page>)> =
+            self.pages.write().drain().map(|(id, p)| (id, p)).collect();
+        pages.sort_by(|x, y| x.0.cmp(&y.0));
+        let mut db = self.db();
+        let page_size = db.page_size();
+        for (page_id, p) in pages {}
         Ok(())
     }
     pub fn writable(&self) -> bool {
