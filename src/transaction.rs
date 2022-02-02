@@ -10,7 +10,7 @@ use anyhow::anyhow;
 use parking_lot::RwLock;
 use std::{
     collections::HashMap,
-    io::{Cursor, Read},
+    io::Cursor,
     ops::Deref,
     rc::{Rc, Weak},
     slice::from_raw_parts,

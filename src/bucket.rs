@@ -35,7 +35,7 @@ use crate::{
 
 // a collection of kev-value pairs
 #[derive(Debug, Clone)]
-pub(crate) struct Bucket {
+pub struct Bucket {
     pub(crate) bucket: IBucket,
     // nested bucket
     buckets: HashMap<String, Bucket>,
@@ -101,7 +101,7 @@ impl Bucket {
         self.bucket.root
     }
 
-    pub fn page_node(&self, id: PageId) -> Result<PageNode> {
+    pub(crate) fn page_node(&self, id: PageId) -> Result<PageNode> {
         if self.root_id() == 0 {
             if id != 0 {}
             if let Some(ref root) = self.root {

@@ -9,6 +9,11 @@ mod node;
 mod page;
 mod transaction;
 mod utils;
+
+pub use bucket::Bucket;
+pub use db::DB;
+pub use transaction::Transaction;
+
 #[cfg(test)]
 mod tests {
     #[test]

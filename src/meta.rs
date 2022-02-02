@@ -4,12 +4,13 @@ use std::{hash::Hasher, intrinsics::copy_nonoverlapping, mem::size_of, slice::fr
 use crate::{
     bucket::IBucket,
     error::Result,
-    page::{Page, PageId},
+    page::{self, Page, PageId},
     transaction::TXID,
     utils::struct_to_slice,
 };
 
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub(crate) struct Meta {
     pub(crate) page_id: PageId,
     pub(crate) magic_number: u32,
@@ -46,7 +47,6 @@ impl Meta {
         self.page_id = page_id;
         self.magic_number = Self::MAGIC;
         self.version = Self::VERSION;
-        self.free_list = 2;
         self.root = IBucket {
             root: 3,
             sequence: 0,

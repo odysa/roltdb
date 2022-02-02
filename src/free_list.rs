@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::mem::size_of;
 
 #[derive(Debug)]
+#[repr(C)]
 pub(crate) struct FreeList {
     pending: BTreeMap<PageId, Vec<PageId>>,
     free_pages: BTreeSet<PageId>, // in-memory look up

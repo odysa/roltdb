@@ -51,8 +51,9 @@ impl DBBuilder {
         Ok(DB(Rc::new(db)))
     }
 }
+
 impl DB {
-    pub fn open<P: AsRef<Path>>(&self, p: P) -> Result<DB> {
+    pub fn open<P: AsRef<Path>>(p: P) -> Result<DB> {
         DBBuilder::default().open(p)
     }
     pub fn tx(&self, writable: bool) -> Transaction {
@@ -66,6 +67,7 @@ impl DB {
         Ok(())
     }
 }
+
 impl Default for DBBuilder {
     fn default() -> Self {
         Self {
@@ -90,12 +92,7 @@ impl IDB {
     pub fn open(file: File) -> Result<Self> {
         let page_size = page_size::get() as u64;
 
-        let mmap = unsafe {
-            MmapOptions::new()
-                .offset(0)
-                .len(page_size as usize)
-                .map(&file)?
-        };
+        let mmap = unsafe { MmapOptions::new().offset(0).map(&file)? };
 
         let db = IDB {
             mmap: RwLock::new(mmap),
@@ -107,9 +104,8 @@ impl IDB {
             let meta = db.meta()?;
             let buf = db.mmap.read();
             let buf = buf.as_ref();
-            let free_list = Page::from_buf(buf, meta.free_list, page_size)
-                .free_list()
-                .unwrap();
+            println!("free list id{}", meta.free_list);
+            let free_list = Page::from_buf(buf, meta.free_list, page_size).free_list()?;
             if !free_list.is_empty() {
                 db.free_list.write().init(free_list);
             }
@@ -137,6 +133,7 @@ impl IDB {
     }
     // init an empty file
     fn init_file(p: &Path, page_size: u64, page_num: u64) -> Result<File> {
+        println!("create db file");
         let mut file = OpenOptions::new()
             .create(true)
             .read(true)
@@ -151,7 +148,11 @@ impl IDB {
                 unsafe { &mut *(&mut buf[(i * page_size) as usize] as *mut u8 as *mut Page) };
             if i < 2 {
                 page.page_type = Page::META_PAGE;
+                page.id = i;
                 let m = page.meta_mut()?;
+                // must before init
+                m.free_list = 2;
+                m.num_pages = 4;
                 m.init(i);
             } else if i == 2 {
                 // init free list
