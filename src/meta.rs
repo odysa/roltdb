@@ -18,7 +18,7 @@ pub(crate) struct Meta {
     pub(crate) free_list: PageId, // page id of free list
     pub(crate) tx_id: TXID,
     pub(crate) root: IBucket,
-
+    pub(crate) num_pages: PageId,
     check_sum: u64,
 }
 
@@ -33,6 +33,7 @@ impl Default for Meta {
             magic_number: Meta::MAGIC,
             version: Meta::VERSION,
             page_size: page_size::get() as u32,
+            num_pages: 0,
         }
     }
 }

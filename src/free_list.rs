@@ -2,6 +2,8 @@ use crate::error::{Result, RoltError};
 use crate::page::{Page, PageId};
 use crate::Err;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::mem::size_of;
+
 #[derive(Debug)]
 pub(crate) struct FreeList {
     pending: BTreeMap<PageId, Vec<PageId>>,
@@ -115,7 +117,7 @@ impl FreeList {
         Ok(())
     }
 
-    fn count(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.free_pages.len() + self.pending_count()
     }
 
@@ -163,5 +165,13 @@ impl FreeList {
         }
         self.free_pages = free_pages;
         self.reindex();
+    }
+    pub(crate) fn size(&self) -> usize {
+        let n = if self.count() > 0xFFF {
+            self.count() + 1
+        } else {
+            self.count()
+        };
+        Page::PAGE_HEADER_SIZE() + (size_of::<PageId>() * n)
     }
 }

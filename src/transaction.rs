@@ -10,7 +10,7 @@ use anyhow::anyhow;
 use parking_lot::RwLock;
 use std::{
     collections::HashMap,
-    io::Cursor,
+    io::{Cursor, Read},
     ops::Deref,
     rc::{Rc, Weak},
     slice::from_raw_parts,
@@ -105,6 +105,7 @@ impl ITransaction {
             // spill
             root.spill()?;
         }
+
         {
             let mut meta = self.meta.write();
             meta.root.root = self.root.read().bucket.root;
@@ -114,16 +115,67 @@ impl ITransaction {
             // free free_list
             free_list.free(meta.tx_id, p)?;
         }
+        {
+            let db = self.db();
+            let free_list = db.free_list.write();
+            let free_list_size = free_list.size();
+            let (page_id, _) = self.allocate(free_list_size as u64);
+            let mut ptr = match self.page(page_id) {
+                Ok(p) => p,
+                Err(_) => panic!("cannot allocate page"),
+            };
+            let page = &mut *ptr;
+            free_list.write(page)?;
+            {
+                self.meta.write().free_list = page.id;
+            }
+            // write dirty pages to disk
+            if let Err(e) = self.write_pages() {
+                self.rollback()?;
+                return Err(e);
+            }
+            // write dirty pages to disk
+            if let Err(e) = self.write_meta() {
+                self.rollback()?;
+                return Err(e);
+            }
+            // close tx
+        }
         Ok(())
     }
+
+    fn page_size(&self) -> u64 {
+        self.db().page_size()
+    }
+
+    fn allocate(&mut self, bytes: u64) -> (PageId, u64) {
+        let page_size = self.page_size();
+        let num = if bytes % page_size == 0 {
+            bytes / page_size
+        } else {
+            bytes / page_size + 1
+        };
+        let db = self.db();
+        let page_id = match db.free_list.write().allocate(num as usize) {
+            None => {
+                let page_id = self.meta.read().num_pages;
+                self.meta.write().num_pages += num;
+                page_id
+            }
+            Some(id) => id,
+        };
+        (page_id, num)
+    }
     // write pages to disk
-    fn write_page(&mut self) -> Result<()> {
+    fn write_pages(&mut self) -> Result<()> {
         let mut pages: Vec<(PageId, RawPtr<Page>)> =
             self.pages.write().drain().map(|(id, p)| (id, p)).collect();
         pages.sort_by(|x, y| x.0.cmp(&y.0));
+
         let mut db = self.db();
         let page_size = db.page_size();
         // write pages to file
+
         for (page_id, p) in pages {
             let size = ((p.overflow + 1) as u64) * page_size;
             let offset = page_id * page_size;
