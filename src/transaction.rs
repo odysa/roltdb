@@ -7,7 +7,7 @@ use crate::{
     page::{Page, PageId},
 };
 use anyhow::anyhow;
-use parking_lot::RwLock;
+use parking_lot::{MappedRwLockWriteGuard, RwLock, RwLockWriteGuard};
 use std::{
     collections::HashMap,
     io::Cursor,
@@ -24,7 +24,7 @@ pub struct WeakTransaction(pub(crate) Weak<ITransaction>);
 
 #[derive(Debug)]
 pub struct ITransaction {
-    pub writable: bool,
+    pub(crate) writable: bool,
     db: RwLock<WeakDB>,
     managed: bool,
     root: RwLock<Bucket>,
@@ -35,7 +35,13 @@ pub struct ITransaction {
 
 impl Transaction {
     pub fn new(db: WeakDB, writable: bool) -> Self {
-        Self(Rc::new(ITransaction::new(db, writable)))
+        let tx = Self(Rc::new(ITransaction::new(db, writable)));
+        {
+            let mut b = tx.root.write();
+            b.tx = WeakTransaction(Rc::downgrade(&tx));
+            b.bucket = tx.meta.read().root.clone();
+        }
+        tx
     }
 }
 
@@ -48,7 +54,7 @@ impl ITransaction {
         if writable {
             meta.tx_id += 1;
         }
-        ITransaction {
+        let tx = ITransaction {
             db: RwLock::new(db),
             managed: false,
             // commit_handlers: Vec::new(),
@@ -56,7 +62,8 @@ impl ITransaction {
             writable,
             meta: RwLock::new(meta),
             root: RwLock::new(Bucket::new(WeakTransaction::new())),
-        }
+        };
+        tx
     }
 
     pub fn page(&self, id: PageId) -> Result<RawPtr<Page>> {
@@ -71,6 +78,18 @@ impl ITransaction {
 
     pub(crate) fn db(&self) -> DB {
         self.db.read().upgrade().unwrap()
+    }
+
+    pub fn create_bucket(&self, name: String) -> Result<MappedRwLockWriteGuard<Bucket>> {
+        if !self.writable() {
+            return Err(anyhow!("read-only tx cannot create bucket"));
+        }
+        let mut b = self.root.write();
+        if !b.tx().unwrap().writable {
+            println!("wired!");
+        }
+        RwLockWriteGuard::try_map(b, |b| b.create_bucket(name).ok())
+            .map_err(|_| anyhow!("failed to create bucket"))
     }
 
     pub fn rollback(&self) -> Result<()> {

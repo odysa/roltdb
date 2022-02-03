@@ -1,4 +1,9 @@
-use std::{cmp::Ordering, marker::PhantomData, ops::Deref};
+use std::{
+    cmp::Ordering,
+    marker::PhantomData,
+    ops::Deref,
+    rc::{Rc, Weak},
+};
 
 use crate::{
     bucket::{Bucket, PageNode},
@@ -8,25 +13,28 @@ use crate::{
 };
 use anyhow::anyhow;
 pub(crate) struct Cursor<'a> {
-    bucket: Bucket,
+    bucket: &'a Bucket,
     stack: Vec<ElementRef>,
     // constrains the lifetime of pair
     _f: PhantomData<KVPair<'a>>,
 }
 impl<'a> Cursor<'a> {
-    pub fn new(b: Bucket) -> Self {
+    pub fn new(b: &'a Bucket) -> Self {
         Self {
             bucket: b,
             stack: Vec::new(),
             _f: PhantomData,
         }
     }
-    pub fn bucket(&self) -> &Bucket {
-        &self.bucket
+    pub(crate) fn bucket(&self) -> &Bucket {
+        self.bucket
+    }
+    pub(crate) fn bucket_mut(&mut self) -> &mut Bucket {
+        unsafe { &mut *(self.bucket as *const Bucket as *mut Bucket) }
     }
     pub fn first(&mut self) -> Result<KVPair> {
         self.stack.clear();
-        let root_elem = self.bucket.page_node(self.bucket.root_id())?;
+        let root_elem = self.bucket().page_node(self.bucket().root_id())?;
         self.stack.push(ElementRef {
             page_node: root_elem,
             index: 0,
@@ -52,7 +60,7 @@ impl<'a> Cursor<'a> {
                     .page_id()
                     .ok_or(anyhow::anyhow!("does not have page id"))?,
             };
-            let page_node = self.bucket.page_node(page_id)?;
+            let page_node = self.bucket().page_node(page_id)?;
             self.stack.push(ElementRef {
                 index: 0,
                 page_node,
@@ -81,9 +89,9 @@ impl<'a> Cursor<'a> {
     }
 
     // move cursor to a key
-    fn seek_to(&mut self, target: &[u8]) -> Result<KVPair<'a>> {
+    pub(crate) fn seek_to(&mut self, target: &[u8]) -> Result<KVPair<'a>> {
         self.stack.clear();
-        let root_id = self.bucket.root_id();
+        let root_id = self.bucket().root_id();
         self.search(target, root_id)?;
         self.kv_pair()
     }
@@ -91,7 +99,7 @@ impl<'a> Cursor<'a> {
     // recursively look for the key
     fn search(&mut self, target: &[u8], id: PageId) -> Result<()> {
         // get node or page by id
-        let page_node = self.bucket.page_node(id)?;
+        let page_node = self.bucket().page_node(id)?;
         let elem = ElementRef {
             index: 0,
             page_node,
@@ -196,22 +204,24 @@ impl<'a> Cursor<'a> {
         let elem = self.stack.last().ok_or(anyhow!("stack empty"))?;
         Ok(KVPair::from(elem))
     }
+
     pub(crate) fn node(&mut self) -> Result<Node> {
         let elem = &self.stack.last().ok_or(anyhow!("stack empty"))?;
         // leaf node is on the top of stack
-        if elem.is_leaf() & elem.is_left() {
+        if elem.is_leaf() & elem.is_right() {
             Ok(elem.as_ref().right().unwrap().clone())
         } else {
             // begin from root node
             let elem = self.stack[0].clone();
-            let node = match elem.upgrade() {
+            let mut node = match elem.upgrade() {
                 // read page
-                either::Either::Left(p) => self.bucket.node(p.id, WeakNode::default()),
+                either::Either::Left(p) => self.bucket_mut().node(p.id, WeakNode::default()),
                 either::Either::Right(n) => n.clone(),
             };
             let len = self.stack.len();
             for e in &self.stack[..len - 1] {
-                todo!()
+                let child = node.child_at(e.index)?;
+                node = child;
             }
             Ok(node)
         }
@@ -258,6 +268,7 @@ impl<'a> KVPair<'a> {
 impl<'a> From<&ElementRef> for KVPair<'a> {
     fn from(elem: &ElementRef) -> Self {
         if elem.count() == 0 {
+            println!("elem is null");
             return Self::null();
         }
         unsafe {
