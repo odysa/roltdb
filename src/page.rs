@@ -13,13 +13,14 @@ use crate::{
 
 pub type PageType = u8;
 pub type PageId = u64;
-#[repr(C)]
+
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct Page {
-    pub(crate) count: u16,
-    pub(crate) overflow: u32, // 0 means page allocated in one page block, 1 means 2 blocks
     pub(crate) id: PageId,
     pub(crate) page_type: PageType,
+    pub(crate) count: u16,
+    pub(crate) overflow: u32, // 0 means page allocated in one page block, 1 means 2 blocks
     ptr: u8,
 }
 

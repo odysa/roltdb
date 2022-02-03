@@ -84,10 +84,7 @@ impl ITransaction {
         if !self.writable() {
             return Err(anyhow!("read-only tx cannot create bucket"));
         }
-        let mut b = self.root.write();
-        if !b.tx().unwrap().writable {
-            println!("wired!");
-        }
+        let b = self.root.write();
         RwLockWriteGuard::try_map(b, |b| b.create_bucket(name).ok())
             .map_err(|_| anyhow!("failed to create bucket"))
     }

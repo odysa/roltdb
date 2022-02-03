@@ -216,7 +216,6 @@ impl Node {
         };
         // old key does not found, insert new inode
         if !found {
-            println!("insert into inode");
             inodes.insert(
                 index,
                 Inode::from(LeafINode {
@@ -277,7 +276,7 @@ impl Node {
             NodeType::Leaf => Page::LEAF_PAGE,
         };
         let inodes = node.inodes.borrow_mut();
-        if inodes.len() > u16::MAX as usize {
+        if inodes.len() >= u16::MAX as usize {
             return Err!(RoltError::InodeOverFlow);
         }
         p.count = inodes.len() as u16;

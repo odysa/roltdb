@@ -1,9 +1,12 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+};
 
 pub type Entry = Vec<u8>;
 
 // a wrapper of raw pointer
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct RawPtr<T>(pub(crate) *const T);
 
 impl<T> Default for RawPtr<T> {

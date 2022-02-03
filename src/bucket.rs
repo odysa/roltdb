@@ -12,29 +12,9 @@ use anyhow::anyhow;
 use either::Either;
 use std::{
     borrow::BorrowMut, collections::HashMap, intrinsics::copy_nonoverlapping, mem::size_of,
-    ops::Deref, os::unix::prelude::OsStrExt, rc::Rc,
+    ops::Deref,
 };
 use std::{cell::RefCell, collections::hash_map::Entry};
-
-// #[derive(Debug, Clone)]
-// pub(crate) struct Bucket(pub(crate) Rc<RefCell<InnerBucket>>);
-
-// #[derive(Debug, Clone, Default)]
-// pub(crate) struct WeakBucket(pub(crate) Weak<RefCell<InnerBucket>>);
-
-// impl Deref for Bucket {
-//     type Target = Rc<RefCell<InnerBucket>>;
-
-//     fn deref(&self) -> &Self::Target {
-//         &self.0
-//     }
-// }
-
-// impl DerefMut for Bucket {
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         &mut self.0
-//     }
-// }
 
 // a collection of kev-value pairs
 #[derive(Debug, Clone)]
@@ -43,10 +23,10 @@ pub struct Bucket {
     // nested bucket
     pub(crate) buckets: RefCell<HashMap<String, Bucket>>,
     pub(crate) tx: WeakTransaction,
-    pub(crate) fill_percent: f64,
-    pub(crate) root: Option<Node>,
-    pub(crate) nodes: HashMap<PageId, Node>,
     pub(crate) page: Option<RawPtr<Page>>,
+    pub(crate) root: Option<Node>,
+    pub(crate) fill_percent: f64,
+    pub(crate) nodes: HashMap<PageId, Node>,
     dirty: bool,
 }
 
@@ -83,8 +63,6 @@ impl Bucket {
 
     pub(crate) fn create_bucket(&mut self, name: String) -> Result<&mut Bucket> {
         if !self.tx()?.writable() {
-            let s = self.tx()?.writable();
-            println!("tx is {}", s);
             panic!("tx not writable")
         }
         let key = name.as_bytes();
@@ -116,24 +94,16 @@ impl Bucket {
         let mut cursor = self.cursor();
         let pair = match cursor.seek_to(key.as_bytes()) {
             Err(_) => {
-                println!("seek error");
                 return None;
             }
             Ok(p) => p,
         };
         if Some(key.as_bytes()) != pair.key() {
-            println!(
-                "key not match, {} , {:?}",
-                key,
-                String::from_utf8(pair.key().unwrap().to_vec())
-            );
-
             return None;
         }
-
         // get a sub-bucket from value
         let child = self.open_bucket(pair.value().unwrap());
-
+        let p = &**(child.page.as_ref().unwrap());
         let mut buckets = self.buckets.borrow_mut();
         let bucket = match buckets.entry(key) {
             Entry::Occupied(e) => {
@@ -143,18 +113,18 @@ impl Bucket {
             }
             Entry::Vacant(e) => e.insert(child),
         };
+        let p = &**(bucket.page.as_ref().unwrap());
         Some(bucket)
     }
     // get sub-bucket
     fn open_bucket(&self, bytes: &[u8]) -> Bucket {
         let mut child = Bucket::new(self.tx.clone());
+
         child.bucket = unsafe { (&*(bytes.as_ptr() as *const IBucket)).clone() };
         // sub-bucket is inline
         if child.bucket.root == 0 {
             let slice = &bytes[IBucket::SIZE..];
-            let mut v = vec![0u8; slice.len()];
-            v.extend_from_slice(slice);
-            let p = Page::from_buf(&v, 0, 0);
+            let p = Page::from_buf(&slice, 0, 0);
             child.page = Some(RawPtr::new(p));
         }
         child
@@ -170,6 +140,19 @@ impl Bucket {
             value
         }
     }
+    pub fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
+        if !self.tx()?.writable() {
+            return Err!("tx not writable");
+        }
+        if key.is_empty() {
+            return Err!("empty key");
+        }
+        let mut cursor = self.cursor();
+        let pair = cursor.seek(key)?;
+        if Some(key) == pair.key() {}
+        cursor.node()?.put(key, key, value, 0);
+        Ok(())
+    }
     fn cursor(&self) -> Cursor {
         Cursor::new(self)
     }
@@ -180,7 +163,9 @@ impl Bucket {
 
     pub(crate) fn page_node(&self, id: PageId) -> Result<PageNode> {
         if self.root_id() == 0 {
-            if id != 0 {}
+            if id != 0 {
+                return Err!("inline bucket must have zero page");
+            }
             if let Some(ref root) = self.root {
                 Ok(PageNode::from(root.clone()))
             } else {
@@ -294,7 +279,6 @@ impl Bucket {
 
     fn as_bytes(&self) -> Vec<u8> {
         let n = self.root.as_ref().unwrap();
-
         let mut bytes: Vec<u8> = vec![0; n.size() + IBucket::SIZE];
         let bucket_ptr = bytes.as_mut_ptr() as *mut IBucket;
         unsafe {

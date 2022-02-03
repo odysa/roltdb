@@ -5,7 +5,7 @@ use parking_lot::{Mutex, RwLock};
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
-    ops::{Deref, DerefMut},
+    ops::Deref,
     path::Path,
     rc::{Rc, Weak},
 };
