@@ -79,7 +79,17 @@ impl Node {
     // fn bucket_mut(&self) -> &mut Bucket {
     //     (*self).bucket_mut()
     // }
-    pub fn num_children(&self) -> usize {
+
+    pub(crate) fn size(&self) -> usize {
+        let mut size = Page::PAGE_HEADER_SIZE();
+        let e_size = self.page_elem_size();
+        for inode in self.inodes.borrow().iter() {
+            size += e_size + inode.key().len() + inode.value().unwrap().len();
+        }
+        size
+    }
+
+    pub(crate) fn num_children(&self) -> usize {
         self.children.borrow().len()
     }
     pub(crate) fn is_leaf(&self) -> bool {
@@ -206,6 +216,7 @@ impl Node {
         };
         // old key does not found, insert new inode
         if !found {
+            println!("insert into inode");
             inodes.insert(
                 index,
                 Inode::from(LeafINode {
@@ -218,7 +229,7 @@ impl Node {
             match &mut inode.0 {
                 Either::Right(l) => {
                     l.key = key.to_vec();
-                    l.value = key.to_vec();
+                    l.value = value.to_vec();
                 }
                 _ => unreachable!(),
             }

@@ -104,7 +104,6 @@ impl IDB {
             let meta = db.meta()?;
             let buf = db.mmap.read();
             let buf = buf.as_ref();
-            println!("free list id{}", meta.free_list);
             let free_list = Page::from_buf(buf, meta.free_list, page_size).free_list()?;
             if !free_list.is_empty() {
                 db.free_list.write().init(free_list);
@@ -133,7 +132,6 @@ impl IDB {
     }
     // init an empty file
     fn init_file(p: &Path, page_size: u64, page_num: u64) -> Result<File> {
-        println!("create db file");
         let mut file = OpenOptions::new()
             .create(true)
             .read(true)
@@ -162,7 +160,7 @@ impl IDB {
             } else {
                 page.id = 3;
                 page.page_type = Page::LEAF_PAGE;
-                page.count;
+                page.count = 0;
             }
         }
         file.write_all(&buf[..])?;
