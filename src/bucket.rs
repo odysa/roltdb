@@ -192,9 +192,7 @@ impl Bucket {
     }
     // write nodes to dirty pages
     pub(crate) fn spill(&mut self) -> Result<()> {
-        // todo: not to clone this
         let mut buckets = self.buckets.borrow_mut();
-
         for (name, child) in buckets.iter_mut() {
             child.spill()?;
             let u8_name = name.as_bytes();
@@ -221,13 +219,13 @@ impl Bucket {
             root.spill()?;
             // spill root node
             self.root = Some(root);
-
             let page_id = self.root.as_ref().unwrap().page_id();
             // todo
             self.bucket.root = page_id;
         }
         Ok(())
     }
+
     pub(crate) fn rebalance(&mut self) {
         for (_, b) in self.buckets.borrow_mut().iter_mut() {
             // recursively rebalance

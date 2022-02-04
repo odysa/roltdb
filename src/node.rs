@@ -337,7 +337,6 @@ impl Node {
     }
     // write nodes to dirty pages
     pub(crate) fn spill(&mut self) -> Result<()> {
-        let page_size = self.page_size();
         {
             // spill children
             let mut children = self.children.borrow_mut();
@@ -345,9 +344,8 @@ impl Node {
             for child in children.iter_mut() {
                 child.spill()?;
             }
-            self.children.borrow_mut().clear();
+            children.clear();
         }
-        {}
         Ok(())
     }
 

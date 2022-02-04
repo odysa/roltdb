@@ -4,7 +4,7 @@ use crate::{
     db::{WeakDB, DB},
     error::Result,
     meta::Meta,
-    page::{Page, PageId},
+    page::{Page, PageId, VPage},
 };
 use anyhow::anyhow;
 use parking_lot::{MappedRwLockWriteGuard, RwLock, RwLockWriteGuard};
@@ -28,7 +28,7 @@ pub struct ITransaction {
     db: RwLock<WeakDB>,
     managed: bool,
     root: RwLock<Bucket>,
-    pages: RwLock<HashMap<PageId, RawPtr<Page>>>,
+    pages: RwLock<HashMap<PageId, VPage>>,
     meta: RwLock<Meta>,
     // commit_handlers: Vec<Box<dyn Fn()>>, // call functions after commit
 }
@@ -69,10 +69,10 @@ impl ITransaction {
     pub fn page(&self, id: PageId) -> Result<RawPtr<Page>> {
         let pages = self.pages.read();
         if let Some(page) = pages.get(&id) {
-            Ok(page.clone())
+            Ok(RawPtr::new(page))
         } else {
             // get page from mmap
-            Ok(RawPtr::new(self.db().page(id)))
+            Ok(RawPtr::new(&*self.db().page(id)))
         }
     }
 
@@ -96,26 +96,21 @@ impl ITransaction {
             let mut free_list = db.free_list.write();
             free_list.rollback(tx_id);
             let free_list_id = db.meta()?.free_list;
-            let free_list_page = db.page(free_list_id);
+            let free_list_page = &*db.page(free_list_id);
             // reload free_list
             free_list.reload(free_list_page);
         }
         // close tx
         Ok(())
     }
-    // // close a transaction
-    // fn close(&self) -> Result<()> {
-    //     let mut db = self.db();
-    //     todo!()
-    //     Ok(())
-    // }
+
     // write change to disk and update meta page
-    pub fn commit(&mut self) -> Result<()> {
+    pub fn commit(&self) -> Result<()> {
         if !self.writable() {
             return Err(anyhow!("cannot commit read-only tx"));
         }
         {
-            let root = &mut *self.root.try_write().unwrap();
+            let root = &mut *self.root.write();
             // rebalance
             root.rebalance();
             // spill
@@ -127,22 +122,23 @@ impl ITransaction {
             meta.root.root = self.root.read().bucket.root;
             let db = self.db();
             let mut free_list = db.free_list.write();
-            let p = db.page(meta.free_list);
+            let p = &*db.page(meta.free_list);
             // free free_list
             free_list.free(meta.tx_id, p)?;
         }
         {
-            let db = self.db();
-            let free_list = db.free_list.write();
-            let free_list_size = free_list.size();
-            let (page_id, _) = self.allocate(free_list_size as u64);
-            let mut ptr = match self.page(page_id) {
-                Ok(p) => p,
-                Err(_) => panic!("cannot allocate page"),
+            let mut db = self.db();
+
+            let free_list_size = {
+                let free_list = db.free_list.read();
+                free_list.size()
             };
-            let page = &mut *ptr;
-            free_list.write(page)?;
+
             {
+                let page = self.allocate(free_list_size as u64)?;
+                let page = unsafe { &mut *page };
+                let free_list = db.free_list.write();
+                free_list.write(page)?;
                 self.meta.write().free_list = page.id;
             }
             // write dirty pages to disk
@@ -150,12 +146,15 @@ impl ITransaction {
                 self.rollback()?;
                 return Err(e);
             }
+
             // write dirty pages to disk
             if let Err(e) = self.write_meta() {
                 self.rollback()?;
                 return Err(e);
             }
             // close tx
+            // let b = vec![0u8; 4096];
+            // db.write_at(4096, Cursor::new(b));
         }
         Ok(())
     }
@@ -164,7 +163,7 @@ impl ITransaction {
         self.db().page_size()
     }
 
-    fn allocate(&mut self, bytes: u64) -> (PageId, u64) {
+    fn allocate(&self, bytes: u64) -> Result<*mut Page> {
         let page_size = self.page_size();
         let num = if bytes % page_size == 0 {
             bytes / page_size
@@ -180,39 +179,46 @@ impl ITransaction {
             }
             Some(id) => id,
         };
-        (page_id, num)
+        let mut page = VPage::new(self.page_size() as usize);
+        let ptr = &mut *page as *mut Page;
+
+        self.pages.write().insert(page_id, page);
+
+        Ok(ptr)
     }
     // write pages to disk
-    fn write_pages(&mut self) -> Result<()> {
-        let mut pages: Vec<(PageId, RawPtr<Page>)> =
+    fn write_pages(&self) -> Result<()> {
+        let mut pages: Vec<(PageId, VPage)> =
             self.pages.write().drain().map(|(id, p)| (id, p)).collect();
         pages.sort_by(|x, y| x.0.cmp(&y.0));
 
         let mut db = self.db();
         let page_size = db.page_size();
         // write pages to file
-
-        for (page_id, p) in pages {
+        for (page_id, p) in &pages {
             let size = ((p.overflow + 1) as u64) * page_size;
             let offset = page_id * page_size;
-            let buf = unsafe { from_raw_parts(p.ptr(), size as usize) };
+            let buf = unsafe { from_raw_parts(p.data_ptr(), size as usize) };
             db.write_at(offset, Cursor::new(buf))?;
         }
 
         Ok(())
     }
     // write meta to disk
-    fn write_meta(&mut self) -> Result<()> {
+    fn write_meta(&self) -> Result<()> {
         let mut meta = self.meta.write();
         let mut db = self.db();
+
         let page_size = db.page_size();
-        let buf: Vec<u8> = vec![0; page_size as usize];
-        let p = Page::from_buf_mut(&buf, meta.page_id, page_size);
-        meta.write(p)?;
         let offset = meta.page_id * page_size;
+        let mut buf = vec![0u8; page_size as usize];
+        let p = Page::from_buf_mut(&mut buf, 0, 0);
+        meta.write(p)?;
+        // p.page_type = 1;
         db.write_at(offset, Cursor::new(buf))?;
         Ok(())
     }
+
     // write free_list to disk
     fn write_free_list(&mut self) -> Result<()> {
         Ok(())
@@ -231,7 +237,11 @@ impl ITransaction {
 impl Drop for ITransaction {
     fn drop(&mut self) {
         // rollback read-only tx
-        if !self.writable {}
+        if !self.writable {
+            self.rollback().unwrap();
+        } else {
+            self.commit().unwrap();
+        }
     }
 }
 

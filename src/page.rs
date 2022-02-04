@@ -1,5 +1,6 @@
 use std::{
     mem::size_of,
+    ops::{Deref, DerefMut},
     slice::{from_raw_parts, from_raw_parts_mut},
 };
 
@@ -122,10 +123,10 @@ impl Page {
     }
     // get a page from buffer
     pub(crate) fn from_buf(buf: &[u8], id: PageId, page_size: u64) -> &Page {
-        unsafe { &*(&buf[(id * page_size) as usize] as *const u8 as *const Page) }
+        unsafe { &*(buf[(id * page_size) as usize..].as_ptr() as *const u8 as *const Page) }
     }
-    pub(crate) fn from_buf_mut(buf: &[u8], id: PageId, page_size: u64) -> &mut Page {
-        unsafe { &mut *(&buf[(id * page_size) as usize] as *const u8 as *mut Page) }
+    pub(crate) fn from_buf_mut(buf: &mut [u8], id: PageId, page_size: u64) -> &mut Page {
+        unsafe { &mut *(buf[(id * page_size) as usize..].as_mut_ptr() as *mut Page) }
     }
 }
 
@@ -174,5 +175,34 @@ impl LeafPageElement {
             let buffer = from_raw_parts(addr, (self.pos + self.k_size) as usize);
             &buffer[pos..]
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct VPage {
+    data: Vec<u8>,
+}
+
+impl VPage {
+    pub(crate) fn new(size: usize) -> Self {
+        Self {
+            data: vec![0u8; size],
+        }
+    }
+    pub(crate) fn data_ptr(&self) -> *const u8 {
+        self.data.as_ptr()
+    }
+}
+
+impl Deref for VPage {
+    type Target = Page;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*(self.data.as_ptr() as *const Page) }
+    }
+}
+
+impl DerefMut for VPage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *(self.data.as_mut_ptr() as *mut Page) }
     }
 }

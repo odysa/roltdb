@@ -17,14 +17,20 @@ impl<T> Default for RawPtr<T> {
 
 impl<T> DerefMut for RawPtr<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *(self.0 as *mut T) }
+        #[allow(clippy::cast_ptr_alignment)]
+        unsafe {
+            &mut *(self.0 as *mut T)
+        }
     }
 }
 
 impl<T> Deref for RawPtr<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        unsafe { &(*self.0) }
+        #[allow(clippy::cast_ptr_alignment)]
+        unsafe {
+            &(*self.0)
+        }
     }
 }
 
@@ -36,7 +42,18 @@ impl<T> RawPtr<T> {
         self.0
     }
 }
-
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test() {
+        let v = 100;
+        let mut p = RawPtr::new(&v);
+        assert_eq!(*p, 100);
+        *p.deref_mut() = 1;
+        assert_eq!(*p, 1);
+    }
+}
 // pub struct Entry {
 //     ptr: *const u8,
 //     len: usize,
