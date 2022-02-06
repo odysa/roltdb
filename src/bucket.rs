@@ -39,6 +39,7 @@ impl Bucket {
     pub fn tx(&self) -> Result<Transaction> {
         self.tx.upgrade().ok_or(RoltError::TxNotValid.into())
     }
+
     pub fn new(tx: WeakTransaction) -> Self {
         Self {
             bucket: IBucket::new(),
@@ -51,33 +52,23 @@ impl Bucket {
             dirty: false,
         }
     }
-    // pub fn create_bucket(&self, key: String) {
-    //     let tx = self.0.borrow().tx.0;
-    //     let tx = tx.clone();
-    // }
-    // pub fn tx(&self) -> Result<Transaction> {
-    //     let tx = self.0.tx.0;
-    //     // tx.upgrade().ok_or(Error::TxNotValid)
-    //     Ok(())
-    // }
 
     pub(crate) fn create_bucket(&mut self, name: String) -> Result<&mut Bucket> {
         if !self.tx()?.writable() {
             panic!("tx not writable")
         }
         let key = name.as_bytes();
-        let tx = self.tx.clone();
         let mut cursor = self.cursor();
         let pair = cursor.seek_to(key)?;
         if Some(key) == pair.key() {
             return Err(anyhow!("bucket exist"));
         }
-
         {
-            let mut b = Bucket::new(tx);
+            let mut b = Bucket::new(self.tx.clone());
             b.root = Some(Node::new(RawPtr::new(&b), crate::node::NodeType::Leaf));
             b.fill_percent = Self::DEFAULT_FILL_PERCENT;
             let bytes = b.as_bytes();
+            let n = cursor.node()?;
             cursor.node()?.put(key, key, &bytes, 0);
             self.page = None;
         }
@@ -113,7 +104,6 @@ impl Bucket {
             }
             Entry::Vacant(e) => e.insert(child),
         };
-        let p = &**(bucket.page.as_ref().unwrap());
         Some(bucket)
     }
     // get sub-bucket
@@ -204,7 +194,6 @@ impl Bucket {
                 continue;
             }
             // update
-
             let mut c = self.cursor();
             let pair = c.seek(u8_name)?;
             if Some(u8_name) != pair.key {
@@ -217,6 +206,7 @@ impl Bucket {
         if !self.root.is_none() {
             let mut root = self.root.clone().ok_or(anyhow!("root is empty"))?;
             root.spill()?;
+            // self.tx()?;
             // spill root node
             self.root = Some(root);
             let page_id = self.root.as_ref().unwrap().page_id();
@@ -226,26 +216,27 @@ impl Bucket {
         Ok(())
     }
 
-    pub(crate) fn rebalance(&mut self) {
+    pub(crate) fn rebalance(&mut self) -> Result<()> {
         for (_, b) in self.buckets.borrow_mut().iter_mut() {
             // recursively rebalance
             if b.dirty {
                 self.dirty = true;
-                b.rebalance();
+                b.rebalance()?;
             }
         }
         if self.dirty {
             for node in self.nodes.borrow_mut().values_mut() {
-                node.rebalance();
+                node.rebalance()?;
             }
         }
+        Ok(())
     }
     // create a node from page
     pub(crate) fn node(&mut self, page_id: PageId, parent: WeakNode) -> Node {
         // panic if it is not writable
         assert!(self.tx().unwrap().writable());
 
-        let mut node = Node::default();
+        let mut node = Node::new(RawPtr::new(&self), crate::node::NodeType::Leaf);
 
         // node crated
         if let Some(n) = self.nodes.get(&page_id) {
@@ -258,7 +249,7 @@ impl Bucket {
             }
             None => {
                 // set new root if parent is empty
-                self.root.replace(node.clone());
+                self.root = Some(node.clone());
             }
         };
         // read from page

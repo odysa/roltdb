@@ -38,7 +38,7 @@ impl FreeList {
             if prev == 0 || id - prev != 1 {
                 start = id;
             }
-            if id - start - 1 >= len as u64 {
+            if id - start + 1 >= len as u64 {
                 for id in start..start + len as u64 {
                     self.free_pages.remove(&id);
                     self.cache.remove(&id);
@@ -53,8 +53,7 @@ impl FreeList {
     // release a page for a transaction
     pub fn free(&mut self, tx_id: u64, p: &Page) -> Result<()> {
         let free_ids = self.pending.entry(tx_id).or_insert_with(Vec::new);
-
-        for id in (p.id)..(p.id + p.overflow as PageId) {
+        for id in (p.id)..=(p.id + p.overflow as PageId) {
             if self.free_pages.contains(&id) {
                 return Err!(RoltError::InodeOverFlow);
             }
@@ -174,5 +173,25 @@ impl FreeList {
             self.count()
         };
         Page::PAGE_HEADER_SIZE() + (size_of::<PageId>() * n)
+    }
+}
+#[cfg(test)]
+mod tests {
+
+    use std::marker::PhantomData;
+
+    use super::*;
+    #[test]
+    fn test_write() {
+        let mut list = FreeList::new();
+        let mut b1 = vec![0u8; 4096];
+        let mut b2 = vec![0u8; 4096];
+
+        let mut p1 = Page::from_buf_mut(&mut b1, 0, 0);
+        p1.id = 2;
+        let mut p2 = Page::from_buf_mut(&mut b2, 0, 0);
+        list.free(0, &p1);
+        list.write(p2);
+        let f = p2.free_list().unwrap();
     }
 }

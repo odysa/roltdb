@@ -65,7 +65,7 @@ impl Meta {
             p.count = 0;
             p.page_type = Page::META_PAGE;
         }
-
+        let m = p.meta()?;
         Ok(())
     }
     fn sum64(&self) -> u64 {

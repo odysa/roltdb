@@ -68,7 +68,7 @@ impl Node {
         }
     }
 
-    fn bucket(&self) -> &Bucket {
+    pub(crate) fn bucket(&self) -> &Bucket {
         &*self.bucket
     }
 
@@ -98,7 +98,7 @@ impl Node {
             NodeType::Leaf => true,
         }
     }
-    // break up a node into some smaller nodes
+    // break up a node into some smaller nodes, return parent of split nodes
     fn split(&mut self) -> Result<Option<Node>> {
         let mut nodes = vec![self.clone()];
         let mut node = self.clone();
@@ -236,9 +236,14 @@ impl Node {
     }
     // read page to node
     pub fn read(&mut self, p: &Page) -> Result<()> {
-        let node = self;
         let count = p.count as usize;
-        node.inodes.replace(match *node.node_type.borrow() {
+        *self.page_id.borrow_mut() = p.id;
+        *self.node_type.borrow_mut() = match p.page_type {
+            Page::LEAF_PAGE => NodeType::Leaf,
+            Page::BRANCH_PAGE => NodeType::Branch,
+            _ => panic!("invalid page type"),
+        };
+        self.inodes.replace(match *self.node_type.borrow() {
             NodeType::Branch => p
                 .branch_elements()?
                 .iter()
@@ -260,8 +265,8 @@ impl Node {
                 })
                 .collect(),
         });
-        node.key.replace(if !node.inodes.borrow().is_empty() {
-            let key = node.inodes.borrow()[0].key().clone();
+        self.key.replace(if !self.inodes.borrow().is_empty() {
+            let key = self.inodes.borrow()[0].key().clone();
             Some(key)
         } else {
             None
@@ -333,7 +338,7 @@ impl Node {
         }
     }
     fn page_size(&self) -> u64 {
-        self.bucket().tx().unwrap().db().page_size()
+        self.bucket().tx().unwrap().db().unwrap().page_size()
     }
     // write nodes to dirty pages
     pub(crate) fn spill(&mut self) -> Result<()> {
@@ -345,6 +350,50 @@ impl Node {
                 child.spill()?;
             }
             children.clear();
+        }
+
+        let mut nodes = match self.split()? {
+            None => vec![self.clone()],
+            Some(p) => p.children.borrow().clone(),
+        };
+        let b = self.bucket_mut();
+        let tx = b.tx()?;
+        let db = tx.db()?;
+        for node in nodes.iter_mut() {
+            let id = *node.page_id.borrow_mut();
+            {
+                let mut free_list = db.free_list.write();
+                let mut p = tx.page(id)?;
+                let page = &mut *p;
+                // free old page
+                free_list.free(tx.id(), page)?;
+            }
+            *node.page_id.borrow_mut() = 0;
+            // find a free page for this node
+            let mut ptr = tx.allocate(node.size() as u64)?;
+            let page = unsafe { &mut **ptr };
+            // write node to page
+            *node.page_id.borrow_mut() = page.id;
+            node.write(page)?;
+
+            // parent inodes
+            if let Some(mut p) = node.parent() {
+                let key = match &*node.key.borrow() {
+                    None => node.inodes.borrow()[0].key().clone(),
+                    Some(k) => k.clone(),
+                };
+                p.put(&key, node.inodes.borrow()[0].key(), &vec![], node.page_id());
+                *node.key.borrow_mut() = Some(key);
+            }
+        }
+
+        // if root node split and create a new root, we spill new root
+        if let Some(p) = self.parent() {
+            if *p.page_id.borrow() == 0 {
+                self.children.borrow_mut().clear();
+                *self = p;
+                return self.spill();
+            }
         }
         Ok(())
     }
@@ -551,7 +600,7 @@ impl Node {
             // add page to free list
             let b = self.bucket_mut();
             let tx = b.tx()?;
-            let db = tx.db();
+            let db = tx.db()?;
             let mut free_lit = db.free_list.write();
             let page = tx.page(*self.page_id.borrow())?;
             // free node's page

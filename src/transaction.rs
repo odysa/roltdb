@@ -66,18 +66,21 @@ impl ITransaction {
         tx
     }
 
-    pub fn page(&self, id: PageId) -> Result<RawPtr<Page>> {
+    pub(crate) fn page(&self, id: PageId) -> Result<RawPtr<Page>> {
         let pages = self.pages.read();
         if let Some(page) = pages.get(&id) {
             Ok(RawPtr::new(page))
         } else {
             // get page from mmap
-            Ok(RawPtr::new(&*self.db().page(id)))
+            Ok(RawPtr::new(&*self.db().unwrap().page(id)))
         }
     }
 
-    pub(crate) fn db(&self) -> DB {
-        self.db.read().upgrade().unwrap()
+    pub(crate) fn db(&self) -> Result<DB> {
+        self.db
+            .read()
+            .upgrade()
+            .ok_or(anyhow!("db in tx is not valid"))
     }
 
     pub fn create_bucket(&self, name: String) -> Result<MappedRwLockWriteGuard<Bucket>> {
@@ -85,12 +88,11 @@ impl ITransaction {
             return Err(anyhow!("read-only tx cannot create bucket"));
         }
         let b = self.root.write();
-        RwLockWriteGuard::try_map(b, |b| b.create_bucket(name).ok())
-            .map_err(|_| anyhow!("failed to create bucket"))
+        Ok(RwLockWriteGuard::map(b, |f| f.create_bucket(name).unwrap()))
     }
 
     pub fn rollback(&self) -> Result<()> {
-        let db = self.db();
+        let db = self.db()?;
         if self.writable {
             let tx_id = self.id();
             let mut free_list = db.free_list.write();
@@ -110,24 +112,29 @@ impl ITransaction {
             return Err(anyhow!("cannot commit read-only tx"));
         }
         {
-            let root = &mut *self.root.write();
+            let mut root = self
+                .root
+                .try_write()
+                .ok_or(anyhow!("cannot acquire root write lock"))?;
+
             // rebalance
-            root.rebalance();
+            root.rebalance()?;
             // spill
             root.spill()?;
         }
-
         {
             let mut meta = self.meta.write();
+            // todo
             meta.root.root = self.root.read().bucket.root;
-            let db = self.db();
+
+            let db = self.db()?;
             let mut free_list = db.free_list.write();
             let p = &*db.page(meta.free_list);
             // free free_list
-            free_list.free(meta.tx_id, p)?;
+            free_list.free(meta.free_list, p)?;
         }
         {
-            let mut db = self.db();
+            let mut db = self.db()?;
 
             let free_list_size = {
                 let free_list = db.free_list.read();
@@ -135,8 +142,8 @@ impl ITransaction {
             };
 
             {
-                let page = self.allocate(free_list_size as u64)?;
-                let page = unsafe { &mut *page };
+                let mut page = self.allocate(free_list_size as u64)?;
+                let page = unsafe { &mut **page };
                 let free_list = db.free_list.write();
                 free_list.write(page)?;
                 self.meta.write().free_list = page.id;
@@ -160,17 +167,17 @@ impl ITransaction {
     }
 
     fn page_size(&self) -> u64 {
-        self.db().page_size()
+        self.db().unwrap().page_size()
     }
 
-    fn allocate(&self, bytes: u64) -> Result<*mut Page> {
+    pub(crate) fn allocate(&self, data_size: u64) -> Result<RawPtr<*mut Page>> {
         let page_size = self.page_size();
-        let num = if bytes % page_size == 0 {
-            bytes / page_size
+        let num = if data_size % page_size == 0 {
+            data_size / page_size
         } else {
-            bytes / page_size + 1
+            data_size / page_size + 1
         };
-        let db = self.db();
+        let db = self.db()?;
         let page_id = match db.free_list.write().allocate(num as usize) {
             None => {
                 let page_id = self.meta.read().num_pages;
@@ -180,8 +187,9 @@ impl ITransaction {
             Some(id) => id,
         };
         let mut page = VPage::new(self.page_size() as usize);
+        page.id = page_id;
         let ptr = &mut *page as *mut Page;
-
+        let ptr = RawPtr::new(&ptr);
         self.pages.write().insert(page_id, page);
 
         Ok(ptr)
@@ -192,23 +200,25 @@ impl ITransaction {
             self.pages.write().drain().map(|(id, p)| (id, p)).collect();
         pages.sort_by(|x, y| x.0.cmp(&y.0));
 
-        let mut db = self.db();
-        let page_size = db.page_size();
-        // write pages to file
-        for (page_id, p) in &pages {
-            let size = ((p.overflow + 1) as u64) * page_size;
-            let offset = page_id * page_size;
-            let buf = unsafe { from_raw_parts(p.data_ptr(), size as usize) };
-            db.write_at(offset, Cursor::new(buf))?;
+        let mut db = self.db()?;
+        {
+            let page_size = db.page_size();
+            // write pages to file
+            for (page_id, p) in &pages {
+                let size = ((p.overflow + 1) as u64) * page_size;
+                let offset = page_id * page_size;
+                let buf = unsafe { from_raw_parts(p.data_ptr(), size as usize) };
+                db.write_at(offset, Cursor::new(buf))?;
+            }
         }
+        db.sync()?;
 
         Ok(())
     }
     // write meta to disk
     fn write_meta(&self) -> Result<()> {
         let mut meta = self.meta.write();
-        let mut db = self.db();
-
+        let mut db = self.db()?;
         let page_size = db.page_size();
         let offset = meta.page_id * page_size;
         let mut buf = vec![0u8; page_size as usize];
@@ -216,6 +226,7 @@ impl ITransaction {
         meta.write(p)?;
         // p.page_type = 1;
         db.write_at(offset, Cursor::new(buf))?;
+        db.sync()?;
         Ok(())
     }
 
@@ -234,13 +245,15 @@ impl ITransaction {
     }
 }
 
-impl Drop for ITransaction {
+impl Drop for Transaction {
     fn drop(&mut self) {
-        // rollback read-only tx
-        if !self.writable {
-            self.rollback().unwrap();
-        } else {
-            self.commit().unwrap();
+        if self.db().is_ok() {
+            // rollback read-only tx
+            if !self.writable {
+                self.rollback().unwrap();
+            } else {
+                self.commit().unwrap();
+            }
         }
     }
 }

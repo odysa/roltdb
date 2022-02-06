@@ -1,4 +1,5 @@
 use std::{
+    marker::PhantomData,
     mem::size_of,
     ops::{Deref, DerefMut},
     slice::{from_raw_parts, from_raw_parts_mut},
@@ -17,12 +18,12 @@ pub type PageId = u64;
 
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct Page {
+pub(crate) struct Page {
     pub(crate) id: PageId,
     pub(crate) page_type: PageType,
     pub(crate) count: u16,
     pub(crate) overflow: u32, // 0 means page allocated in one page block, 1 means 2 blocks
-    ptr: u8,
+    pub(crate) ptr: PhantomData<u8>,
 }
 
 impl Page {
@@ -30,20 +31,12 @@ impl Page {
     pub const LEAF_PAGE: PageType = 0x02; // data
     pub const META_PAGE: PageType = 0x03; // meta data
     pub const FREE_LIST_PAGE: PageType = 0x04; // free pages
-    pub fn new() -> Page {
-        Page {
-            count: 0,
-            overflow: 0,
-            id: 0,
-            ptr: 0,
-            page_type: 0x1,
-        }
-    }
+
     pub fn ptr(&self) -> *const u8 {
-        self.ptr as *const u8
+        &self.ptr as *const PhantomData<u8> as *const u8
     }
     pub fn ptr_mut(&mut self) -> *mut u8 {
-        &mut self.ptr as *mut u8
+        &mut self.ptr as *mut PhantomData<u8> as *mut u8
     }
     pub(crate) fn PAGE_HEADER_SIZE() -> usize {
         offset_of!(Self, ptr)
@@ -56,7 +49,7 @@ impl Page {
     pub(crate) fn meta(&self) -> Result<&Meta> {
         match self.page_type {
             Page::META_PAGE => unsafe {
-                let meta = &*(&self.ptr as *const u8 as *const Meta);
+                let meta = &*(self.ptr() as *const Meta);
                 Ok(meta)
             },
             _ => Err!(RoltError::InvalidPageType),
@@ -65,7 +58,7 @@ impl Page {
     pub(crate) fn meta_mut(&mut self) -> Result<&mut Meta> {
         match self.page_type {
             Page::META_PAGE => unsafe {
-                let meta = &mut *(&mut self.ptr as *mut u8 as *mut Meta);
+                let meta = &mut *(self.ptr_mut() as *mut Meta);
                 Ok(meta)
             },
             _ => Err!(RoltError::InvalidPageType),
@@ -74,7 +67,7 @@ impl Page {
     pub fn free_list(&self) -> Result<&[PageId]> {
         match self.page_type {
             Page::FREE_LIST_PAGE => unsafe {
-                let addr = self.ptr as *const PageId;
+                let addr = self.ptr() as *const PageId;
                 Ok(from_raw_parts(addr, self.count as usize))
             },
             _ => Err!(RoltError::InvalidPageType),
@@ -83,7 +76,7 @@ impl Page {
 
     pub fn free_list_mut(&mut self) -> Result<&mut [PageId]> {
         unsafe {
-            let start = &self.ptr as *const u8 as *mut PageId;
+            let start = self.ptr_mut() as *mut PageId;
             let list = from_raw_parts_mut(start, self.count as usize);
             Ok(list)
         }
@@ -92,7 +85,7 @@ impl Page {
     pub fn branch_elements(&self) -> Result<&[BranchPageElement]> {
         match self.page_type {
             Page::BRANCH_PAGE => unsafe {
-                let addr = self.ptr as *const u8 as *const BranchPageElement;
+                let addr = self.ptr() as *const BranchPageElement;
                 Ok(from_raw_parts(addr, self.count as usize))
             },
             _ => Err!(RoltError::InvalidPageType),
@@ -108,7 +101,7 @@ impl Page {
     pub fn leaf_elements(&self) -> Result<&[LeafPageElement]> {
         match self.page_type {
             Page::LEAF_PAGE => unsafe {
-                let addr = self.ptr as *const u8 as *const LeafPageElement;
+                let addr = self.ptr() as *const LeafPageElement;
                 Ok(from_raw_parts(addr, self.count as usize))
             },
             _ => Err!(RoltError::InvalidPageType),

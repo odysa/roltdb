@@ -1,11 +1,10 @@
 use anyhow::anyhow;
 use fs2::FileExt;
-use memmap::{Mmap, MmapOptions};
-use parking_lot::{
-    MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard,
-};
+use memmap::Mmap;
+use parking_lot::{Mutex, RwLock};
 
 use std::{
+    fmt::Debug,
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     ops::Deref,
@@ -109,7 +108,8 @@ impl IDB {
         };
         {
             let meta = db.meta()?;
-            let free_list = Page::from_buf(&db.mmap, meta.free_list, page_size).free_list()?;
+            let free_page = Page::from_buf(&db.mmap, meta.free_list, page_size);
+            let free_list = free_page.free_list()?;
             if !free_list.is_empty() {
                 db.free_list.write().init(free_list);
             }
@@ -122,7 +122,7 @@ impl IDB {
         let meta1 = Page::from_buf(buf, 1, self.page_size).meta()?;
         let meta = match (meta0.validate(), meta1.validate()) {
             (true, true) => {
-                if meta0.tx_id > meta1.tx_id {
+                if meta0.tx_id >= meta1.tx_id {
                     meta0
                 } else {
                     meta1
@@ -176,7 +176,8 @@ impl IDB {
     // get a page from mmap
     pub(crate) fn page(&self, id: PageId) -> &Page {
         // RwLockReadGuard::map(mmap, |m| Page::from_buf(m.as_ref(), id, self.page_size))
-        Page::from_buf(self.mmap.as_ref(), id, self.page_size)
+        let p = Page::from_buf(self.mmap.as_ref(), id, self.page_size);
+        p
     }
 
     pub(crate) fn resize_mmap(&mut self, size: u64) -> Result<()> {
@@ -185,6 +186,10 @@ impl IDB {
         let new_mmap = unsafe { Mmap::map(&f).unwrap() };
         self.mmap = Arc::new(new_mmap);
         Ok(())
+    }
+    pub(crate) fn sync(&self) -> Result<()> {
+        let mut f = self.file.lock();
+        f.flush().map_err(|_| anyhow!("cannot sync data to file"))
     }
 }
 
