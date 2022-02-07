@@ -14,6 +14,8 @@ pub enum RoltError {
     InodeOverFlow,
     #[error("inode is not valid")]
     InvalidInode,
+    #[error("bucket has been created")]
+    BucketExist,
 }
 
 #[macro_export]

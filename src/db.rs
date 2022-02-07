@@ -175,7 +175,6 @@ impl IDB {
 
     // get a page from mmap
     pub(crate) fn page(&self, id: PageId) -> &Page {
-        // RwLockReadGuard::map(mmap, |m| Page::from_buf(m.as_ref(), id, self.page_size))
         let p = Page::from_buf(self.mmap.as_ref(), id, self.page_size);
         p
     }

@@ -327,7 +327,7 @@ impl<'a> From<&ElementRef> for KVPair<'a> {
                     let leaf = &p.leaf_elements().unwrap()[elem.index];
                     Self {
                         key: Some(&*(leaf.key() as *const [u8])),
-                        value: Some(&*(leaf.key() as *const [u8])),
+                        value: Some(&*(leaf.value() as *const [u8])),
                     }
                 }
                 either::Either::Right(ref n) => {

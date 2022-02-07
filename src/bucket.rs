@@ -61,7 +61,7 @@ impl Bucket {
         let mut cursor = self.cursor();
         let pair = cursor.seek_to(key)?;
         if Some(key) == pair.key() {
-            return Err(anyhow!("bucket exist"));
+            return Err!(RoltError::BucketExist);
         }
         {
             let mut b = Bucket::new(self.tx.clone());
@@ -77,6 +77,17 @@ impl Bucket {
             .ok_or(anyhow!("cannot get bucket"))
     }
 
+    pub(crate) fn create_bucket_if_not_exist(&mut self, name: String) -> Result<&mut Bucket> {
+        let self_mut = unsafe { &mut *(self as *mut Self) };
+        match self_mut.create_bucket(name.clone()) {
+            Ok(b) => Ok(b),
+            Err(_) => self
+                .get_bucket(name)
+                .map(|b| unsafe { &mut *b })
+                .ok_or(anyhow!("cannot get bucket")),
+        }
+    }
+
     fn get_bucket(&self, key: String) -> Option<*mut Bucket> {
         if let Some(b) = self.buckets.borrow_mut().get_mut(&key) {
             return Some(b);
@@ -89,12 +100,13 @@ impl Bucket {
             }
             Ok(p) => p,
         };
+
         if Some(key.as_bytes()) != pair.key() {
             return None;
         }
+
         // get a sub-bucket from value
         let child = self.open_bucket(pair.value().unwrap());
-        let p = &**(child.page.as_ref().unwrap());
         let mut buckets = self.buckets.borrow_mut();
         let bucket = match buckets.entry(key) {
             Entry::Occupied(e) => {

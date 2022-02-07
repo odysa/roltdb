@@ -1,7 +1,7 @@
 use std::{
     marker::PhantomData,
     mem::size_of,
-    ops::{Deref, DerefMut},
+    ops::{Add, Deref, DerefMut},
     slice::{from_raw_parts, from_raw_parts_mut},
 };
 
@@ -156,17 +156,15 @@ impl LeafPageElement {
     pub fn key(&self) -> &[u8] {
         unsafe {
             let pos = self.pos as usize;
-            let addr = self as *const LeafPageElement as *const u8;
-            let buffer = from_raw_parts(addr, (self.pos + self.k_size) as usize);
-            &buffer[pos..]
+            let addr = (self as *const LeafPageElement as *const u8).add(pos);
+            from_raw_parts(addr, (self.pos + self.k_size) as usize)
         }
     }
     pub fn value(&self) -> &[u8] {
         unsafe {
             let pos = (self.pos + self.k_size) as usize;
-            let addr = self as *const LeafPageElement as *const u8;
-            let buffer = from_raw_parts(addr, (self.pos + self.k_size) as usize);
-            &buffer[pos..]
+            let addr = (self as *const LeafPageElement as *const u8).add(pos);
+            from_raw_parts(addr, self.v_size as usize)
         }
     }
 }

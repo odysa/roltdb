@@ -145,9 +145,12 @@ impl Node {
 
     // split a node into two nodes
     fn break_up(&mut self) -> Result<Option<Node>> {
+        if self.fit_page_size() {
+            return Ok(None);
+        }
         let inodes = self.inodes.borrow_mut();
         // do not need to break up this node
-        if inodes.len() <= Self::MIN_KEY || self.fit_page_size() {
+        if inodes.len() <= Self::MIN_KEY {
             return Ok(None);
         }
         let mut fill_percent = self.bucket().fill_percent;

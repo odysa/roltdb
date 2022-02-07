@@ -91,6 +91,19 @@ impl ITransaction {
         Ok(RwLockWriteGuard::map(b, |f| f.create_bucket(name).unwrap()))
     }
 
+    pub fn create_bucket_if_not_exist(
+        &self,
+        name: String,
+    ) -> Result<MappedRwLockWriteGuard<Bucket>> {
+        if !self.writable() {
+            return Err(anyhow!("read-only tx cannot create bucket"));
+        }
+        let b = self.root.write();
+        Ok(RwLockWriteGuard::map(b, |f| {
+            f.create_bucket_if_not_exist(name).unwrap()
+        }))
+    }
+
     pub fn rollback(&self) -> Result<()> {
         let db = self.db()?;
         if self.writable {
