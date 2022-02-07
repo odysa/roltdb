@@ -12,6 +12,7 @@ pub(crate) struct FreeList {
     cache: HashSet<PageId>,
 }
 
+#[allow(dead_code)]
 impl FreeList {
     pub fn new() -> FreeList {
         FreeList {
@@ -62,8 +63,6 @@ impl FreeList {
         }
         Ok(())
     }
-
-    pub fn release(&self, tx_id: u64) {}
 
     pub fn is_free(&self, id: PageId) -> bool {
         self.cache.contains(&id)
@@ -149,7 +148,7 @@ impl FreeList {
         }
     }
     pub(crate) fn reload(&mut self, p: &Page) {
-        self.read(p);
+        self.read(p).unwrap();
         let mut t_cache = HashSet::new();
         for (_, ids) in self.pending.iter() {
             for id in ids.iter() {
@@ -172,14 +171,11 @@ impl FreeList {
         } else {
             self.count()
         };
-        Page::PAGE_HEADER_SIZE() + (size_of::<PageId>() * n)
+        Page::page_header_size() + (size_of::<PageId>() * n)
     }
 }
 #[cfg(test)]
 mod tests {
-
-    use std::marker::PhantomData;
-
     use super::*;
     #[test]
     fn test_write() {
@@ -189,9 +185,9 @@ mod tests {
 
         let mut p1 = Page::from_buf_mut(&mut b1, 0, 0);
         p1.id = 2;
-        let mut p2 = Page::from_buf_mut(&mut b2, 0, 0);
-        list.free(0, &p1);
-        list.write(p2);
-        let f = p2.free_list().unwrap();
+        let p2 = Page::from_buf_mut(&mut b2, 0, 0);
+        list.free(0, &p1).unwrap();
+        list.write(p2).unwrap();
+        let _ = p2.free_list().unwrap();
     }
 }

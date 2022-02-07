@@ -22,6 +22,7 @@ pub struct Transaction(pub(crate) Rc<ITransaction>);
 #[derive(Debug, Clone)]
 pub struct WeakTransaction(pub(crate) Weak<ITransaction>);
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ITransaction {
     pub(crate) writable: bool,
@@ -45,6 +46,7 @@ impl Transaction {
     }
 }
 
+#[allow(dead_code)]
 impl ITransaction {
     pub fn new(db: WeakDB, writable: bool) -> Self {
         let mut meta = match db.upgrade() {
@@ -146,7 +148,7 @@ impl ITransaction {
             free_list.free(meta.free_list, p)?;
         }
         {
-            let mut db = self.db()?;
+            let db = self.db()?;
 
             let free_list_size = {
                 let free_list = db.free_list.read();
@@ -241,16 +243,14 @@ impl ITransaction {
         Ok(())
     }
 
-    // write free_list to disk
-    fn write_free_list(&mut self) -> Result<()> {
-        Ok(())
-    }
     pub fn writable(&self) -> bool {
         self.writable
     }
+
     pub(crate) fn id(&self) -> TXID {
         self.meta.read().tx_id
     }
+
     pub(crate) fn page_id(&self) -> PageId {
         self.meta.read().page_id
     }

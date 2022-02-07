@@ -11,14 +11,10 @@ use crate::{
 use anyhow::anyhow;
 use either::Either;
 use std::{
-    borrow::{Borrow, BorrowMut},
-    collections::HashMap,
-    intrinsics::copy_nonoverlapping,
-    mem::size_of,
+    borrow::BorrowMut, collections::HashMap, intrinsics::copy_nonoverlapping, mem::size_of,
     ops::Deref,
 };
 use std::{cell::RefCell, collections::hash_map::Entry};
-
 // a collection of kev-value pairs
 #[derive(Debug, Clone)]
 pub struct Bucket {
@@ -33,6 +29,7 @@ pub struct Bucket {
     dirty: bool,
 }
 
+#[allow(dead_code)]
 impl Bucket {
     pub(crate) const DEFAULT_FILL_PERCENT: f64 = 0.5;
     pub(crate) const MIN_FILL_PERCENT: f64 = 0.1;
@@ -102,7 +99,6 @@ impl Bucket {
             }
             Ok(p) => p,
         };
-        let n = cursor.node().unwrap();
         if Some(key.as_bytes()) != pair.key() {
             return None;
         }
@@ -295,11 +291,12 @@ impl Bucket {
 
         bytes
     }
+
     fn fit_inline(&self) -> bool {
         if self.root.is_none() || !self.root.as_ref().unwrap().is_leaf() {
             return false;
         }
-        let mut size = Page::PAGE_HEADER_SIZE();
+        let mut size = Page::page_header_size();
         let root = self.root.clone().unwrap();
         for inode in root.inodes.borrow().iter() {
             // find child bucket
@@ -315,6 +312,7 @@ impl Bucket {
     }
 }
 // on-file representation of bucket
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct IBucket {
     pub(crate) root: PageId,

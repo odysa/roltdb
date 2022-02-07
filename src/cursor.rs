@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, cell::RefCell, cmp::Ordering, marker::PhantomData, ops::Deref};
+use std::{cell::RefCell, cmp::Ordering, marker::PhantomData, ops::Deref};
 
 use crate::{
     bucket::{Bucket, PageNode},
@@ -13,6 +13,8 @@ pub(crate) struct Cursor<'a> {
     // constrains the lifetime of pair
     _f: PhantomData<KVPair<'a>>,
 }
+
+#[allow(dead_code)]
 impl<'a> Cursor<'a> {
     pub fn new(b: &'a Bucket) -> Self {
         Self {
@@ -21,12 +23,15 @@ impl<'a> Cursor<'a> {
             _f: PhantomData,
         }
     }
+
     pub(crate) fn bucket(&self) -> &Bucket {
         self.bucket
     }
+
     pub(crate) fn bucket_mut(&mut self) -> &mut Bucket {
         unsafe { &mut *(self.bucket as *const Bucket as *mut Bucket) }
     }
+
     pub fn first(&mut self) -> Result<KVPair> {
         self.stack.borrow_mut().clear();
         let root_elem = self.bucket().page_node(self.bucket().root_id())?;
@@ -301,6 +306,7 @@ pub(crate) struct KVPair<'a> {
     pub(crate) flags: u32,
 }
 
+#[allow(dead_code)]
 impl<'a> KVPair<'a> {
     pub(crate) fn null() -> Self {
         Self {

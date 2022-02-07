@@ -1,7 +1,7 @@
 use std::{
     marker::PhantomData,
     mem::size_of,
-    ops::{Add, Deref, DerefMut},
+    ops::{Deref, DerefMut},
     slice::{from_raw_parts, from_raw_parts_mut},
 };
 
@@ -38,7 +38,7 @@ impl Page {
     pub fn ptr_mut(&mut self) -> *mut u8 {
         &mut self.ptr as *mut PhantomData<u8> as *mut u8
     }
-    pub(crate) fn PAGE_HEADER_SIZE() -> usize {
+    pub(crate) fn page_header_size() -> usize {
         offset_of!(Self, ptr)
     }
 

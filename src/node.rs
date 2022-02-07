@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use either::Either;
 use std::{
-    borrow::{Borrow, BorrowMut},
+    borrow::BorrowMut,
     cell::RefCell,
     intrinsics::copy_nonoverlapping,
     ops::Deref,
@@ -80,7 +80,7 @@ impl Node {
     // }
 
     pub(crate) fn size(&self) -> usize {
-        let mut size = Page::PAGE_HEADER_SIZE();
+        let mut size = Page::page_header_size();
         let e_size = self.page_elem_size();
         for inode in self.inodes.borrow().iter() {
             size += e_size + inode.key().len() + inode.value().unwrap().len();
@@ -176,7 +176,7 @@ impl Node {
     // find a index to split a node to fill threshold
     fn split_index(&self, threshold: usize) -> (usize, usize) {
         let mut index = 0;
-        let mut size = Page::PAGE_HEADER_SIZE();
+        let mut size = Page::page_header_size();
         let elem_size = self.page_elem_size();
         let inodes = self.inodes.borrow();
         let len = inodes.len() - Self::MIN_KEY;
@@ -193,7 +193,7 @@ impl Node {
     }
     // whether this node fit one page
     fn fit_page_size(&self) -> bool {
-        let head_size = Page::PAGE_HEADER_SIZE();
+        let head_size = Page::page_header_size();
         let mut size = head_size;
         let elem_size = self.page_elem_size();
         let page_size = self.page_size() as usize;

@@ -31,6 +31,7 @@ pub struct DBBuilder {
     num_pages: u64,
 }
 
+#[allow(dead_code)]
 impl DBBuilder {
     pub fn page_size(mut self, size: u64) -> Self {
         self.page_size = size;
@@ -89,6 +90,7 @@ pub struct IDB {
     pub(crate) free_list: RwLock<FreeList>,
 }
 
+#[allow(dead_code)]
 impl IDB {
     pub(crate) fn page_size(&self) -> u64 {
         self.page_size
@@ -100,7 +102,6 @@ impl IDB {
         let mmap = unsafe { Mmap::map(&file)? };
 
         let db = IDB {
-            // mmap: RwLock::new(mmap),
             mmap: Arc::new(mmap),
             page_size,
             file: Mutex::new(file),
@@ -213,8 +214,6 @@ impl From<&DB> for WeakDB {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::DerefMut;
-
     use crate::data::RawPtr;
 
     use super::*;
@@ -224,7 +223,7 @@ mod tests {
         let p = Page::from_buf(&db.mmap, 30, db.page_size);
         let mut p = RawPtr::new(p);
         let p = &mut *p;
-        // p.page_type = 1;
+        p.page_type = 1;
     }
     #[test]
     fn test_b() {
