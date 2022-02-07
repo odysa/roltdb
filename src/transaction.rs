@@ -27,7 +27,7 @@ pub struct ITransaction {
     pub(crate) writable: bool,
     db: RwLock<WeakDB>,
     managed: bool,
-    root: RwLock<Bucket>,
+    pub root: RwLock<Bucket>,
     pages: RwLock<HashMap<PageId, VPage>>,
     meta: RwLock<Meta>,
     // commit_handlers: Vec<Box<dyn Fn()>>, // call functions after commit
@@ -244,9 +244,13 @@ impl ITransaction {
         self.meta.read().page_id
     }
 }
-
+// drop for RC<> will called when a reference is dropped
 impl Drop for Transaction {
     fn drop(&mut self) {
+        // one owned by user
+        if Rc::strong_count(&self.0) > 1 {
+            return;
+        }
         if self.db().is_ok() {
             // rollback read-only tx
             if !self.writable {

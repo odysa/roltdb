@@ -280,6 +280,7 @@ impl Node {
             NodeType::Branch => Page::BRANCH_PAGE,
             NodeType::Leaf => Page::LEAF_PAGE,
         };
+
         let inodes = node.inodes.borrow_mut();
         if inodes.len() >= u16::MAX as usize {
             return Err!(RoltError::InodeOverFlow);
@@ -288,12 +289,14 @@ impl Node {
         if p.count == 0 {
             return Ok(());
         }
+
         let mut addr = unsafe {
             // offset to write key and value
             // memory: element element .... key value
             let offset = self.page_elem_size() * inodes.len();
             p.ptr_mut().add(offset)
         };
+        drop(inodes);
         match *node.node_type.borrow() {
             NodeType::Branch => {
                 let branches = p.branch_elements_mut()?;
