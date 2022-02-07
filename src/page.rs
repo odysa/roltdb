@@ -121,8 +121,12 @@ impl Page {
     pub(crate) fn from_buf_mut(buf: &mut [u8], id: PageId, page_size: u64) -> &mut Page {
         unsafe { &mut *(buf[(id * page_size) as usize..].as_mut_ptr() as *mut Page) }
     }
+    pub(crate) fn from_buf_direct(buf: &[u8]) -> &Page {
+        Self::from_buf(buf, 0, 0)
+    }
 }
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct BranchPageElement {
     // offset to key
@@ -143,6 +147,7 @@ impl BranchPageElement {
     }
 }
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct LeafPageElement {
     // offset to key and value
@@ -157,7 +162,7 @@ impl LeafPageElement {
         unsafe {
             let pos = self.pos as usize;
             let addr = (self as *const LeafPageElement as *const u8).add(pos);
-            from_raw_parts(addr, (self.pos + self.k_size) as usize)
+            from_raw_parts(addr, self.k_size as usize)
         }
     }
     pub fn value(&self) -> &[u8] {

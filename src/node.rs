@@ -1,10 +1,10 @@
 use anyhow::anyhow;
 use either::Either;
 use std::{
-    borrow::BorrowMut,
+    borrow::{Borrow, BorrowMut},
     cell::RefCell,
     intrinsics::copy_nonoverlapping,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     rc::{Rc, Weak},
     vec,
 };
@@ -17,7 +17,6 @@ use crate::{
     Err,
 };
 
-type NodeId = u64;
 #[derive(Default, Clone, Debug)]
 pub(crate) struct Node(pub(crate) Rc<InnerNode>);
 
@@ -45,7 +44,7 @@ pub(crate) struct InnerNode {
     pub(crate) bucket: RawPtr<Bucket>,
     pub(crate) page_id: RefCell<PageId>,
     unbalanced: bool,
-    spilled: bool,
+    // spilled: bool,
     pub(crate) inodes: RefCell<Vec<Inode>>,
     pub(crate) children: RefCell<Vec<Node>>,
     pub(crate) parent: RefCell<WeakNode>,
@@ -148,10 +147,12 @@ impl Node {
         if self.fit_page_size() {
             return Ok(None);
         }
-        let inodes = self.inodes.borrow_mut();
-        // do not need to break up this node
-        if inodes.len() <= Self::MIN_KEY {
-            return Ok(None);
+        {
+            let inodes = self.inodes.borrow_mut();
+            // do not need to break up this node
+            if inodes.len() <= Self::MIN_KEY {
+                return Ok(None);
+            }
         }
         let mut fill_percent = self.bucket().fill_percent;
         // bound fill_percent
@@ -209,7 +210,14 @@ impl Node {
         *self.page_id.borrow()
     }
 
-    pub(crate) fn put(&mut self, old: &[u8], key: &[u8], value: &[u8], page_id: PageId) {
+    pub(crate) fn put(
+        &mut self,
+        old: &[u8],
+        key: &[u8],
+        value: &[u8],
+        _page_id: PageId,
+        flags: u32,
+    ) {
         let node = self;
         let mut inodes = node.inodes.borrow_mut();
         let (found, index) = match inodes.binary_search_by(|inode| inode.key().as_slice().cmp(old))
@@ -224,6 +232,7 @@ impl Node {
                 Inode::from(LeafINode {
                     key: key.to_vec(),
                     value: value.to_vec(),
+                    flags,
                 }),
             );
         } else {
@@ -232,6 +241,7 @@ impl Node {
                 Either::Right(l) => {
                     l.key = key.to_vec();
                     l.value = value.to_vec();
+                    l.flags = flags
                 }
                 _ => unreachable!(),
             }
@@ -239,7 +249,6 @@ impl Node {
     }
     // read page to node
     pub fn read(&mut self, p: &Page) -> Result<()> {
-        let count = p.count as usize;
         *self.page_id.borrow_mut() = p.id;
         *self.node_type.borrow_mut() = match p.page_type {
             Page::LEAF_PAGE => NodeType::Leaf,
@@ -254,6 +263,7 @@ impl Node {
                     Inode::from(BranchINode {
                         key: b.key().to_vec(),
                         page_id: b.id,
+                        flags: 0,
                     })
                 })
                 .collect(),
@@ -264,6 +274,7 @@ impl Node {
                     Inode::from(LeafINode {
                         key: f.key().to_vec(),
                         value: f.value().to_vec(),
+                        flags: 0,
                     })
                 })
                 .collect(),
@@ -367,14 +378,16 @@ impl Node {
         let db = tx.db()?;
         for node in nodes.iter_mut() {
             let id = *node.page_id.borrow_mut();
-            {
+            // skip meta pages
+            if id > 0 {
                 let mut free_list = db.free_list.write();
                 let mut p = tx.page(id)?;
                 let page = &mut *p;
                 // free old page
+                // probably free page id 0 or 1
                 free_list.free(tx.id(), page)?;
+                *node.page_id.borrow_mut() = 0;
             }
-            *node.page_id.borrow_mut() = 0;
             // find a free page for this node
             let mut ptr = tx.allocate(node.size() as u64)?;
             let page = unsafe { &mut **ptr };
@@ -388,7 +401,13 @@ impl Node {
                     None => node.inodes.borrow()[0].key().clone(),
                     Some(k) => k.clone(),
                 };
-                p.put(&key, node.inodes.borrow()[0].key(), &vec![], node.page_id());
+                p.put(
+                    &key,
+                    node.inodes.borrow()[0].key(),
+                    &vec![],
+                    node.page_id(),
+                    0,
+                );
                 *node.key.borrow_mut() = Some(key);
             }
         }
@@ -464,8 +483,8 @@ impl Node {
             // remove this node from its parent
             parent.remove(&key);
             parent.remove_child(self);
-            self.free();
-            parent.rebalance();
+            self.free()?;
+            parent.rebalance()?;
             return Ok(());
         }
 
@@ -507,7 +526,7 @@ impl Node {
                 parent.remove_child(&sibling);
                 // remove sibling from bucket
                 self.bucket_mut().nodes.remove(&sibling.page_id.borrow());
-                sibling.free();
+                sibling.free()?;
             } else {
                 // combine this node into sibling
                 for page_id in self.inodes.borrow().iter().map(|i| i.page_id().unwrap()) {
@@ -529,11 +548,11 @@ impl Node {
                 parent.remove_child(&self);
 
                 self.bucket_mut().nodes.remove(&self.page_id.borrow());
-                self.free();
+                self.free()?;
             }
             self.parent()
                 .ok_or(anyhow!("parent not valid"))?
-                .rebalance();
+                .rebalance()?;
         }
         Ok(())
     }
@@ -656,6 +675,15 @@ impl Inode {
             Either::Right(_) => None,
         }
     }
+    pub(crate) fn flags(&self) -> u32 {
+        match &self.0 {
+            Either::Left(b) => b.flags,
+            Either::Right(l) => l.flags,
+        }
+    }
+    pub(crate) fn is_bucket(&self) -> bool {
+        self.flags() == Bucket::FLAG
+    }
 }
 impl From<BranchINode> for Inode {
     fn from(node: BranchINode) -> Self {
@@ -669,20 +697,16 @@ impl From<LeafINode> for Inode {
     }
 }
 
-impl InnerNode {
-    fn bucket_mut(&mut self) -> &mut Bucket {
-        self.bucket.deref_mut()
-    }
-}
-
 #[derive(Debug, Clone)]
 struct BranchINode {
+    flags: u32,
     key: Entry,
     page_id: PageId,
 }
 
 #[derive(Debug, Clone)]
 struct LeafINode {
+    flags: u32,
     key: Entry,
     value: Entry,
 }

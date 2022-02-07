@@ -1,4 +1,4 @@
-use std::{cell::RefCell, cmp::Ordering, marker::PhantomData, ops::Deref};
+use std::{borrow::Borrow, cell::RefCell, cmp::Ordering, marker::PhantomData, ops::Deref};
 
 use crate::{
     bucket::{Bucket, PageNode},
@@ -127,6 +127,8 @@ impl<'a> Cursor<'a> {
         self.stack.borrow_mut().clear();
         let root_id = self.bucket().root_id();
         self.search(target, root_id)?;
+        let k = vec![b'a'];
+        if target == k {}
         self.kv_pair()
     }
 
@@ -296,6 +298,7 @@ impl Deref for ElementRef {
 pub(crate) struct KVPair<'a> {
     pub(crate) key: Option<&'a [u8]>,
     pub(crate) value: Option<&'a [u8]>,
+    pub(crate) flags: u32,
 }
 
 impl<'a> KVPair<'a> {
@@ -303,6 +306,7 @@ impl<'a> KVPair<'a> {
         Self {
             key: None,
             value: None,
+            flags: 0,
         }
     }
     pub(crate) fn key(&self) -> Option<&'a [u8]> {
@@ -328,6 +332,7 @@ impl<'a> From<&ElementRef> for KVPair<'a> {
                     Self {
                         key: Some(&*(leaf.key() as *const [u8])),
                         value: Some(&*(leaf.value() as *const [u8])),
+                        flags: 0,
                     }
                 }
                 either::Either::Right(ref n) => {
@@ -336,6 +341,7 @@ impl<'a> From<&ElementRef> for KVPair<'a> {
                     Self {
                         key: Some(&*(inode.key().as_slice() as *const [u8])),
                         value: Some(&*(value.as_slice() as *const [u8])),
+                        flags: 0,
                     }
                 }
             }

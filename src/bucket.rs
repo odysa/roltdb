@@ -3,7 +3,7 @@ use crate::{
     data::RawPtr,
     error::{Result, RoltError},
     node::{Node, WeakNode},
-    page::{Page, PageId},
+    page::{LeafPageElement, Page, PageId},
     transaction::{Transaction, WeakTransaction},
     utils::struct_to_slice,
     Err,
@@ -11,7 +11,10 @@ use crate::{
 use anyhow::anyhow;
 use either::Either;
 use std::{
-    borrow::BorrowMut, collections::HashMap, intrinsics::copy_nonoverlapping, mem::size_of,
+    borrow::{Borrow, BorrowMut},
+    collections::HashMap,
+    intrinsics::copy_nonoverlapping,
+    mem::size_of,
     ops::Deref,
 };
 use std::{cell::RefCell, collections::hash_map::Entry};
@@ -35,7 +38,7 @@ impl Bucket {
     pub(crate) const MIN_FILL_PERCENT: f64 = 0.1;
     pub(crate) const MAX_FILL_PERCENT: f64 = 1.0;
     pub(crate) const BUCKET_HEADER_SIZE: usize = size_of::<Self>();
-
+    pub(crate) const FLAG: u32 = 1;
     pub fn tx(&self) -> Result<Transaction> {
         self.tx.upgrade().ok_or(RoltError::TxNotValid.into())
     }
@@ -68,8 +71,7 @@ impl Bucket {
             b.root = Some(Node::new(RawPtr::new(&b), crate::node::NodeType::Leaf));
             b.fill_percent = Self::DEFAULT_FILL_PERCENT;
             let bytes = b.as_bytes();
-            let n = cursor.node()?;
-            cursor.node()?.put(key, key, &bytes, 0);
+            cursor.node()?.put(key, key, &bytes, 0, Self::FLAG);
             self.page = None;
         }
         self.get_bucket(name)
@@ -100,11 +102,10 @@ impl Bucket {
             }
             Ok(p) => p,
         };
-
+        let n = cursor.node().unwrap();
         if Some(key.as_bytes()) != pair.key() {
             return None;
         }
-
         // get a sub-bucket from value
         let child = self.open_bucket(pair.value().unwrap());
         let mut buckets = self.buckets.borrow_mut();
@@ -121,21 +122,21 @@ impl Bucket {
     // get sub-bucket
     fn open_bucket(&self, bytes: &[u8]) -> Bucket {
         let mut child = Bucket::new(self.tx.clone());
-
         child.bucket = unsafe { (&*(bytes.as_ptr() as *const IBucket)).clone() };
         // sub-bucket is inline
         if child.bucket.root == 0 {
             let slice = &bytes[IBucket::SIZE..];
-            let p = Page::from_buf(&slice, 0, 0);
+            let p = Page::from_buf_direct(slice);
             child.page = Some(RawPtr::new(p));
         }
         child
     }
     // get finds the value by key
     pub fn get(&self, target: &[u8]) -> Option<&[u8]> {
-        let pair = self.cursor().seek(target).unwrap();
+        let mut c = self.cursor();
+        let pair = c.seek(target).unwrap();
         let (key, value) = (pair.key(), pair.value());
-        if key != Some(target) {
+        if pair.flags == Self::FLAG || key != Some(target) {
             None
         } else {
             // notice: lifetime of reference to value
@@ -152,7 +153,8 @@ impl Bucket {
         let mut cursor = self.cursor();
         let pair = cursor.seek(key)?;
         if Some(key) == pair.key() {}
-        cursor.node()?.put(key, key, value, 0);
+        let mut node = cursor.node()?;
+        node.put(key, key, value, 0, 0);
         Ok(())
     }
     fn cursor(&self) -> Cursor {
@@ -195,13 +197,17 @@ impl Bucket {
     // write nodes to dirty pages
     pub(crate) fn spill(&mut self) -> Result<()> {
         let mut buckets = self.buckets.borrow_mut();
+
         for (name, child) in buckets.iter_mut() {
-            child.spill()?;
             let u8_name = name.as_bytes();
-            let value = unsafe {
-                let bytes = struct_to_slice(&child.bucket);
-                bytes.clone().to_vec()
+            let value = {
+                child.spill()?;
+                unsafe {
+                    let bytes = struct_to_slice(&child.bucket);
+                    bytes.clone().to_vec()
+                }
             };
+
             if child.root.is_none() {
                 continue;
             }
@@ -212,17 +218,14 @@ impl Bucket {
                 return Err(anyhow::anyhow!("bucket header not match"));
             }
             let mut node = c.node()?;
-            node.put(u8_name, u8_name, value.as_slice(), 0);
+            node.put(u8_name, u8_name, value.as_slice(), 0, pair.flags);
         }
         //
-        if !self.root.is_none() {
+        if self.root.is_some() {
             let mut root = self.root.clone().ok_or(anyhow!("root is empty"))?;
             root.spill()?;
-            // self.tx()?;
-            // spill root node
             self.root = Some(root);
             let page_id = self.root.as_ref().unwrap().page_id();
-            // todo
             self.bucket.root = page_id;
         }
         Ok(())
@@ -289,7 +292,26 @@ impl Bucket {
             // write root node to the fake page
             n.write(page).unwrap();
         }
+
         bytes
+    }
+    fn fit_inline(&self) -> bool {
+        if self.root.is_none() || !self.root.as_ref().unwrap().is_leaf() {
+            return false;
+        }
+        let mut size = Page::PAGE_HEADER_SIZE();
+        let root = self.root.clone().unwrap();
+        for inode in root.inodes.borrow().iter() {
+            // find child bucket
+            if inode.is_bucket() {
+                return false;
+            }
+            size += LeafPageElement::SIZE + inode.key().len() + inode.value().unwrap().len();
+            if size > (self.tx().unwrap().db().unwrap().page_size() / 4) as usize {
+                return false;
+            }
+        }
+        true
     }
 }
 // on-file representation of bucket
@@ -343,7 +365,7 @@ impl PageNode {
     fn page(&self) -> &Page {
         match self.0 {
             Either::Left(ref ptr) => &*ptr,
-            Either::Right(_) => todo!(),
+            Either::Right(_) => unreachable!(),
         }
     }
     pub(crate) fn upgrade(&self) -> Either<&Page, &Node> {

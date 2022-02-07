@@ -6,7 +6,6 @@ fn open() {
     let tx = db.tx(true);
 
     let mut b = tx.create_bucket_if_not_exist("test".to_string()).unwrap();
-    b.put(b"a", b"a").unwrap();
     let res = b.get(b"a").unwrap();
     assert_eq!(res, b"a");
 }

@@ -139,7 +139,6 @@ impl ITransaction {
             let mut meta = self.meta.write();
             // todo
             meta.root.root = self.root.read().bucket.root;
-
             let db = self.db()?;
             let mut free_list = db.free_list.write();
             let p = &*db.page(meta.free_list);
@@ -204,7 +203,6 @@ impl ITransaction {
         let ptr = &mut *page as *mut Page;
         let ptr = RawPtr::new(&ptr);
         self.pages.write().insert(page_id, page);
-
         Ok(ptr)
     }
     // write pages to disk
@@ -217,7 +215,7 @@ impl ITransaction {
         {
             let page_size = db.page_size();
             // write pages to file
-            for (page_id, p) in &pages {
+            for (page_id, p) in pages.iter() {
                 let size = ((p.overflow + 1) as u64) * page_size;
                 let offset = page_id * page_size;
                 let buf = unsafe { from_raw_parts(p.data_ptr(), size as usize) };
