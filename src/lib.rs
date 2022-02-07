@@ -4,12 +4,12 @@ mod data;
 mod db;
 mod error;
 mod free_list;
+mod inode;
 mod meta;
 mod node;
 mod page;
 mod transaction;
 mod utils;
-
 pub use bucket::Bucket;
 pub use db::DB;
 pub use transaction::Transaction;

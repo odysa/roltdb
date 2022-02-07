@@ -13,6 +13,7 @@ use crate::{
     bucket::Bucket,
     data::{Entry, RawPtr},
     error::{Result, RoltError},
+    inode::{BranchINode, Inode, LeafINode},
     page::{BranchPageElement, LeafPageElement, Page, PageId},
     Err,
 };
@@ -652,61 +653,4 @@ impl Default for NodeType {
     fn default() -> Self {
         NodeType::Leaf
     }
-}
-#[derive(Debug, Clone)]
-pub(crate) struct Inode(Either<BranchINode, LeafINode>);
-
-impl Inode {
-    pub(crate) fn key(&self) -> &Vec<u8> {
-        match &self.0 {
-            Either::Left(b) => &b.key,
-            Either::Right(l) => &l.key,
-        }
-    }
-    pub(crate) fn value(&self) -> Option<&Vec<u8>> {
-        match &self.0 {
-            Either::Left(_) => None,
-            Either::Right(l) => Some(&l.value),
-        }
-    }
-    pub(crate) fn page_id(&self) -> Option<PageId> {
-        match &self.0 {
-            Either::Left(b) => Some(b.page_id),
-            Either::Right(_) => None,
-        }
-    }
-    pub(crate) fn flags(&self) -> u32 {
-        match &self.0 {
-            Either::Left(b) => b.flags,
-            Either::Right(l) => l.flags,
-        }
-    }
-    pub(crate) fn is_bucket(&self) -> bool {
-        self.flags() == Bucket::FLAG
-    }
-}
-impl From<BranchINode> for Inode {
-    fn from(node: BranchINode) -> Self {
-        Self(Either::Left(node))
-    }
-}
-
-impl From<LeafINode> for Inode {
-    fn from(node: LeafINode) -> Self {
-        Self(Either::Right(node))
-    }
-}
-
-#[derive(Debug, Clone)]
-struct BranchINode {
-    flags: u32,
-    key: Entry,
-    page_id: PageId,
-}
-
-#[derive(Debug, Clone)]
-struct LeafINode {
-    flags: u32,
-    key: Entry,
-    value: Entry,
 }
