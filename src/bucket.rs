@@ -36,6 +36,7 @@ impl Bucket {
     pub(crate) const MAX_FILL_PERCENT: f64 = 1.0;
     pub(crate) const BUCKET_HEADER_SIZE: usize = size_of::<Self>();
     pub(crate) const FLAG: u32 = 1;
+
     pub fn tx(&self) -> Result<Transaction> {
         self.tx.upgrade().ok_or(RoltError::TxNotValid.into())
     }
@@ -52,7 +53,7 @@ impl Bucket {
             dirty: false,
         }
     }
-
+    // create a bucket and put it in the root node
     pub(crate) fn create_bucket(&mut self, name: String) -> Result<&mut Bucket> {
         if !self.tx()?.writable() {
             panic!("tx not writable")
@@ -86,7 +87,7 @@ impl Bucket {
                 .ok_or(anyhow!("cannot get bucket")),
         }
     }
-
+    // get a bucket from nested buckets
     fn get_bucket(&self, key: String) -> Option<*mut Bucket> {
         if let Some(b) = self.buckets.borrow_mut().get_mut(&key) {
             return Some(b);
@@ -139,6 +140,8 @@ impl Bucket {
             value
         }
     }
+
+    // put key and value
     pub fn put(&mut self, key: &[u8], value: &[u8]) -> Result<()> {
         if !self.tx()?.writable() {
             return Err!("tx not writable");
@@ -153,15 +156,20 @@ impl Bucket {
         node.put(key, key, value, 0, 0);
         Ok(())
     }
+
+    // create a new cursor
     fn cursor(&self) -> Cursor {
         Cursor::new(self)
     }
 
+    // get root page id of bucket
     pub fn root_id(&self) -> PageId {
         self.bucket.root
     }
 
+    // get page or a node
     pub(crate) fn page_node(&self, id: PageId) -> Result<PageNode> {
+        // use inline page
         if self.root_id() == 0 {
             if id != 0 {
                 return Err!("inline bucket must have zero page");
@@ -190,6 +198,7 @@ impl Bucket {
         self.root = None;
         self.nodes.clear();
     }
+
     // write nodes to dirty pages
     pub(crate) fn spill(&mut self) -> Result<()> {
         let mut buckets = self.buckets.borrow_mut();
@@ -216,7 +225,8 @@ impl Bucket {
             let mut node = c.node()?;
             node.put(u8_name, u8_name, value.as_slice(), 0, pair.flags);
         }
-        //
+
+        // spill root node
         if self.root.is_some() {
             let mut root = self.root.clone().ok_or(anyhow!("root is empty"))?;
             root.spill()?;
@@ -276,7 +286,7 @@ impl Bucket {
         self.nodes.insert(page_id, node.clone());
         node
     }
-
+    // convert bucket to bytes
     fn as_bytes(&self) -> Vec<u8> {
         let n = self.root.as_ref().unwrap();
         let mut bytes: Vec<u8> = vec![0; n.size() + IBucket::SIZE];
@@ -292,6 +302,7 @@ impl Bucket {
         bytes
     }
 
+    // check whether this bucket can be stored inline
     fn fit_inline(&self) -> bool {
         if self.root.is_none() || !self.root.as_ref().unwrap().is_leaf() {
             return false;

@@ -16,6 +16,8 @@ pub enum RoltError {
     InvalidInode,
     #[error("bucket has been created")]
     BucketExist,
+    #[error("stack empty")]
+    StackEmpty,
 }
 
 #[macro_export]
