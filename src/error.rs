@@ -18,6 +18,8 @@ pub enum RoltError {
     BucketExist,
     #[error("stack empty")]
     StackEmpty,
+    #[error("only allow one writable tx")]
+    WritableTxNotAllowed,
 }
 
 #[macro_export]

@@ -56,7 +56,7 @@ impl ITransaction {
         if writable {
             meta.tx_id += 1;
         }
-        let tx = ITransaction {
+        ITransaction {
             db: RwLock::new(db),
             managed: false,
             // commit_handlers: Vec::new(),
@@ -64,8 +64,7 @@ impl ITransaction {
             writable,
             meta: RwLock::new(meta),
             root: RwLock::new(Bucket::new(WeakTransaction::new())),
-        };
-        tx
+        }
     }
 
     pub(crate) fn page(&self, id: PageId) -> Result<RawPtr<Page>> {
@@ -267,6 +266,7 @@ impl Drop for Transaction {
             if !self.writable {
                 self.rollback().unwrap();
             } else {
+                self.db().unwrap().release_write_tx();
                 self.commit().unwrap();
             }
         }

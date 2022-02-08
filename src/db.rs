@@ -3,6 +3,14 @@ use fs2::FileExt;
 use memmap::Mmap;
 use parking_lot::{Mutex, RwLock};
 
+use crate::{
+    error::{Result, RoltError},
+    free_list::FreeList,
+    meta::Meta,
+    page::{Page, PageId},
+    transaction::Transaction,
+    Err,
+};
 use std::{
     fmt::Debug,
     fs::{File, OpenOptions},
@@ -10,15 +18,10 @@ use std::{
     ops::Deref,
     path::Path,
     rc::{Rc, Weak},
-    sync::Arc,
-};
-
-use crate::{
-    error::Result,
-    free_list::FreeList,
-    meta::Meta,
-    page::{Page, PageId},
-    transaction::Transaction,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 #[derive(Debug)]
@@ -60,8 +63,17 @@ impl DB {
     pub fn open<P: AsRef<Path>>(p: P) -> Result<DB> {
         DBBuilder::default().open(p)
     }
-    pub fn tx(&self, writable: bool) -> Transaction {
-        Transaction::new(WeakDB::from(self), writable)
+    pub fn tx(&self, writable: bool) -> Result<Transaction> {
+        if self.has_write.load(Ordering::Relaxed) {
+            return Err!(RoltError::WritableTxNotAllowed);
+        }
+        if writable {
+            self.has_write.store(true, Ordering::Relaxed);
+        }
+        Ok(Transaction::new(WeakDB::from(self), writable))
+    }
+    pub(crate) fn release_write_tx(&mut self) {
+        self.has_write.store(false, Ordering::Relaxed);
     }
     pub(crate) fn write_at<T: Read>(&mut self, addr: u64, mut buf: T) -> Result<()> {
         let mut file = self.file.lock(); // unlock automatically
@@ -88,6 +100,7 @@ pub struct IDB {
     file: Mutex<File>,
     page_size: u64,
     pub(crate) free_list: RwLock<FreeList>,
+    has_write: AtomicBool,
 }
 
 #[allow(dead_code)]
@@ -106,6 +119,7 @@ impl IDB {
             page_size,
             file: Mutex::new(file),
             free_list: RwLock::new(FreeList::new()),
+            has_write: AtomicBool::new(false),
         };
         {
             let meta = db.meta()?;

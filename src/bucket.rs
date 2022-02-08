@@ -183,12 +183,10 @@ impl Bucket {
                     Err!(RoltError::PageEmpty)
                 }
             }
+        } else if let Some(node) = self.nodes.get(&id) {
+            Ok(PageNode::from(node.clone()))
         } else {
-            if let Some(node) = self.nodes.get(&id) {
-                Ok(PageNode::from(node.clone()))
-            } else {
-                Ok(PageNode::from(self.tx()?.page(id)?))
-            }
+            Ok(PageNode::from(self.tx()?.page(id)?))
         }
     }
 
