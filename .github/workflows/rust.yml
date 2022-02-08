@@ -1,0 +1,42 @@
+name: Rust
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        build: [stable, beta]
+        include:
+          - build: stable
+            os: ubuntu-latest
+            rust: stable
+          - build: beta
+            os: ubuntu-latest
+            rust: beta
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run tests
+      run: cargo test
+    - name: Test
+      run: cargo test --verbose
+    - name: Build
+      run: cargo build --verbose
+
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - name: lint rust code
+      run: rustup update stable && rustup default stable && rustup component add clippy
+    - run: cargo clippy
