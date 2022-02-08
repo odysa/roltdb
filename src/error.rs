@@ -1,29 +1,29 @@
-use std::fmt::Display;
-pub type Result<T> = std::result::Result<T, Error>;
+use thiserror::Error;
 
-#[derive(Debug)]
-pub enum Error {
+pub type Result<T> = anyhow::Result<T>;
+
+#[derive(Error, Debug)]
+pub enum RoltError {
+    #[error("invalid page type")]
     InvalidPageType,
+    #[error("tx not valid")]
     TxNotValid,
+    #[error("page is empty")]
     PageEmpty,
+    #[error("inode is overflow")]
     InodeOverFlow,
+    #[error("inode is not valid")]
     InvalidInode,
+    #[error("bucket has been created")]
+    BucketExist,
+    #[error("stack empty")]
+    StackEmpty,
 }
 
-impl Error {
-    fn as_str(&self) -> &str {
-        match *self {
-            Error::InvalidPageType => "page type is not correct",
-            Error::TxNotValid => "tx is not valid",
-            Error::PageEmpty => "page is empty",
-            Error::InodeOverFlow => "inode overflow",
-            Error::InvalidInode => "inode is not valid type",
-        }
-    }
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.as_str(), f)
-    }
+#[macro_export]
+macro_rules! Err {
+    ($err:expr $(,)?) => {{
+        let error = $err;
+        Err(anyhow::anyhow!(error))
+    }};
 }

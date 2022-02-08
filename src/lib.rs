@@ -1,14 +1,19 @@
 mod bucket;
+mod cursor;
 mod data;
+mod db;
 mod error;
 mod free_list;
+mod inode;
 mod meta;
 mod node;
 mod page;
 mod transaction;
-mod cursor;
 mod utils;
-mod db;
+pub use bucket::Bucket;
+pub use db::DB;
+pub use transaction::Transaction;
+
 #[cfg(test)]
 mod tests {
     #[test]

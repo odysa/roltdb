@@ -5,20 +5,21 @@ use crate::{
     bucket::IBucket,
     error::Result,
     page::{Page, PageId},
+    transaction::TXID,
     utils::struct_to_slice,
 };
 
-#[derive(Debug)]
-pub struct Meta {
-    page_id: PageId,
-    magic_number: u32,
-    version: u32,
-    page_size: u32,
-    free_list: PageId, // page id of free list
-    tx_id: PageId,
-
-    root: IBucket,
-
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub(crate) struct Meta {
+    pub(crate) page_id: PageId,
+    pub(crate) magic_number: u32,
+    pub(crate) version: u32,
+    pub(crate) page_size: u32,
+    pub(crate) free_list: PageId, // page id of free list
+    pub(crate) tx_id: TXID,
+    pub(crate) root: IBucket,
+    pub(crate) num_pages: PageId,
     check_sum: u64,
 }
 
@@ -33,6 +34,7 @@ impl Default for Meta {
             magic_number: Meta::MAGIC,
             version: Meta::VERSION,
             page_size: page_size::get() as u32,
+            num_pages: 0,
         }
     }
 }
@@ -41,6 +43,16 @@ impl Meta {
     const VERSION: u32 = 1;
     const META_SIZE: usize = size_of::<Self>();
     const SUM_SIZE: usize = size_of::<u64>();
+    pub fn init(&mut self, page_id: PageId) {
+        self.page_id = page_id;
+        self.magic_number = Self::MAGIC;
+        self.version = Self::VERSION;
+        self.root = IBucket {
+            root: 3,
+            sequence: 0,
+        };
+        self.check_sum = self.sum64();
+    }
     // write meta to the given page
     pub fn write(&mut self, p: &mut Page) -> Result<()> {
         // either 0 or 1
@@ -53,7 +65,6 @@ impl Meta {
             p.count = 0;
             p.page_type = Page::META_PAGE;
         }
-
         Ok(())
     }
     fn sum64(&self) -> u64 {
@@ -66,5 +77,8 @@ impl Meta {
         };
         hash.write(buf);
         hash.finish()
+    }
+    pub(crate) fn validate(&self) -> bool {
+        self.magic_number == Self::MAGIC && self.check_sum == self.sum64()
     }
 }
