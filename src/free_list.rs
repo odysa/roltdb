@@ -126,7 +126,7 @@ impl FreeList {
 
     fn page_ids(&self) -> Vec<PageId> {
         let mut ids = Vec::with_capacity(self.count());
-        let free_pages: Vec<PageId> = self.free_pages.iter().map(|x| *x).collect();
+        let free_pages: Vec<PageId> = self.free_pages.iter().copied().collect();
         ids.extend_from_slice(&free_pages);
         for list in self.pending.values() {
             ids.extend_from_slice(list);
@@ -141,7 +141,7 @@ impl FreeList {
         for id in self.free_pages.iter() {
             self.cache.insert(*id);
         }
-        for (_, pages) in &self.pending {
+        for pages in self.pending.values() {
             for id in pages {
                 self.cache.insert(*id);
             }

@@ -71,14 +71,11 @@ impl Node {
     pub(crate) fn bucket(&self) -> &Bucket {
         &*self.bucket
     }
-
+    #[allow(clippy::all)]
     fn bucket_mut(&self) -> &mut Bucket {
         let bucket = self.bucket.unwrap();
         unsafe { &mut *(bucket as *mut Bucket) }
     }
-    // fn bucket_mut(&self) -> &mut Bucket {
-    //     (*self).bucket_mut()
-    // }
 
     pub(crate) fn size(&self) -> usize {
         let mut size = Page::page_header_size();
@@ -190,7 +187,7 @@ impl Node {
             }
             size += e_size;
         }
-        return (index, size);
+        (index, size)
     }
     // whether this node fit one page
     fn fit_page_size(&self) -> bool {
@@ -402,13 +399,7 @@ impl Node {
                     None => node.inodes.borrow()[0].key().clone(),
                     Some(k) => k.clone(),
                 };
-                p.put(
-                    &key,
-                    node.inodes.borrow()[0].key(),
-                    &vec![],
-                    node.page_id(),
-                    0,
-                );
+                p.put(&key, node.inodes.borrow()[0].key(), &[], node.page_id(), 0);
                 *node.key.borrow_mut() = Some(key);
             }
         }
@@ -425,10 +416,14 @@ impl Node {
     }
 
     pub(crate) fn child_at(&mut self, index: usize) -> Result<Node> {
-        let inodes = self.inodes.borrow();
-        let inode = inodes.get(index).ok_or(anyhow!("inode index not valid"))?;
-        let id = inode.page_id().unwrap();
-        Ok(self.bucket_mut().node(id, WeakNode::from(self)))
+        let n = self.clone();
+        let id = {
+            let inodes = self.inodes.borrow();
+            let inode = inodes.get(index).ok_or(anyhow!("inode index not valid"))?;
+            inode.page_id().unwrap()
+        };
+        let b = { self.bucket_mut() };
+        Ok(b.node(id, WeakNode::from(&n)))
     }
 
     pub(crate) fn rebalance(&mut self) -> Result<()> {
@@ -523,7 +518,7 @@ impl Node {
                     .append(&mut *sibling.inodes.borrow_mut());
                 // remove sibling from parent
                 let parent = &mut self.parent().unwrap();
-                parent.remove(&sibling.key.borrow().as_ref().unwrap());
+                parent.remove(sibling.key.borrow().as_ref().unwrap());
                 parent.remove_child(&sibling);
                 // remove sibling from bucket
                 self.bucket_mut().nodes.remove(&sibling.page_id.borrow());
@@ -533,7 +528,7 @@ impl Node {
                 for page_id in self.inodes.borrow().iter().map(|i| i.page_id().unwrap()) {
                     if let Some(child) = self.bucket_mut().nodes.get_mut(&page_id) {
                         let parent = &mut child.parent().unwrap();
-                        parent.remove_child(&child);
+                        parent.remove_child(child);
                         // parent is sibling
                         *child.parent.borrow_mut() = WeakNode::from(&sibling);
                         // assign child to new parent
@@ -546,7 +541,7 @@ impl Node {
                     .append(&mut self.inodes.borrow_mut());
                 let parent = &mut self.parent().ok_or(anyhow!("parent not valid"))?;
                 parent.remove(self.key.borrow().as_ref().unwrap());
-                parent.remove_child(&self);
+                parent.remove_child(self);
 
                 self.bucket_mut().nodes.remove(&self.page_id.borrow());
                 self.free()?;
@@ -608,12 +603,8 @@ impl Node {
     // remove a key from node
     fn remove(&mut self, key: &[u8]) {
         let mut inodes = self.inodes.borrow_mut();
-        match inodes.binary_search_by(|i| i.key().as_slice().cmp(key)) {
-            Ok(i) => {
-                inodes.remove(i);
-                // self.unbalanced = true;
-            }
-            Err(_) => {}
+        if let Ok(i) = inodes.binary_search_by(|i| i.key().as_slice().cmp(key)) {
+            inodes.remove(i);
         };
     }
 

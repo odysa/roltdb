@@ -28,6 +28,7 @@ impl<'a> Cursor<'a> {
         self.bucket
     }
 
+    #[allow(clippy::all)]
     pub(crate) fn bucket_mut(&mut self) -> &mut Bucket {
         unsafe { &mut *(self.bucket as *const Bucket as *mut Bucket) }
     }
@@ -71,7 +72,7 @@ impl<'a> Cursor<'a> {
     }
     // move to the next leaf element
     fn next_leaf(&self) -> Result<KVPair> {
-        loop {}
+        todo!()
     }
     pub fn last(&self) -> Result<KVPair> {
         todo!()
@@ -169,7 +170,12 @@ impl<'a> Cursor<'a> {
             Ok(mut v) => {
                 // find the highest index
                 let start = v;
-                for i in start..(branches.len() - 1) {
+                for (i, _) in branches
+                    .iter()
+                    .enumerate()
+                    .take(branches.len() - 1)
+                    .skip(start)
+                {
                     match branches[i].key().cmp(target) {
                         Ordering::Equal => v = i,
                         _ => break,
@@ -333,7 +339,7 @@ impl<'a> From<&ElementRef> for KVPair<'a> {
         }
         unsafe {
             match elem.upgrade() {
-                either::Either::Left(ref p) => {
+                either::Either::Left(p) => {
                     let leaf = &p.leaf_elements().unwrap()[elem.index];
                     Self {
                         key: Some(&*(leaf.key() as *const [u8])),
@@ -341,7 +347,7 @@ impl<'a> From<&ElementRef> for KVPair<'a> {
                         flags: 0,
                     }
                 }
-                either::Either::Right(ref n) => {
+                either::Either::Right(n) => {
                     let inode = &n.inodes.borrow()[elem.index];
                     let value = inode.value().ok_or("does not have value").unwrap();
                     Self {

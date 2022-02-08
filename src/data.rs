@@ -11,7 +11,7 @@ pub struct RawPtr<T>(pub(crate) *const T);
 
 impl<T> Default for RawPtr<T> {
     fn default() -> Self {
-        Self(0 as *const T)
+        Self(std::ptr::null::<T>())
     }
 }
 

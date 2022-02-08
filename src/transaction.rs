@@ -15,7 +15,7 @@ use std::{
     rc::{Rc, Weak},
     slice::from_raw_parts,
 };
-pub type TXID = u64;
+pub type Txid = u64;
 #[derive(Debug, Clone)]
 pub struct Transaction(pub(crate) Rc<ITransaction>);
 
@@ -40,7 +40,7 @@ impl Transaction {
         {
             let mut b = tx.root.write();
             b.tx = WeakTransaction(Rc::downgrade(&tx));
-            b.bucket = tx.meta.read().root.clone();
+            b.bucket = tx.meta.read().root;
         }
         tx
     }
@@ -246,7 +246,7 @@ impl ITransaction {
         self.writable
     }
 
-    pub(crate) fn id(&self) -> TXID {
+    pub(crate) fn id(&self) -> Txid {
         self.meta.read().tx_id
     }
 

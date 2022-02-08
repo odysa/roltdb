@@ -12,6 +12,7 @@ use crate::{
     Err,
 };
 use std::{
+    cmp::Ordering as CmpOrdering,
     fmt::Debug,
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
@@ -25,9 +26,9 @@ use std::{
 };
 
 #[derive(Debug)]
-pub struct DB(pub Rc<IDB>);
+pub struct DB(pub Rc<Idb>);
 #[derive(Debug)]
-pub struct WeakDB(pub Weak<IDB>);
+pub struct WeakDB(pub Weak<Idb>);
 
 pub struct DBBuilder {
     page_size: u64,
@@ -50,11 +51,11 @@ impl DBBuilder {
     pub fn open<P: AsRef<Path>>(&self, p: P) -> Result<DB> {
         let p = p.as_ref();
         let f = if !p.exists() {
-            IDB::init_file(p, self.page_size, self.num_pages)?
+            Idb::init_file(p, self.page_size, self.num_pages)?
         } else {
             OpenOptions::new().read(true).write(true).open(p)?
         };
-        let db = IDB::open(f)?;
+        let db = Idb::open(f)?;
         Ok(DB(Rc::new(db)))
     }
 }
@@ -94,7 +95,7 @@ impl Default for DBBuilder {
 }
 
 #[derive(Debug)]
-pub struct IDB {
+pub struct Idb {
     // pub(crate) mmap: RwLock<Mmap>,
     pub(crate) mmap: Arc<Mmap>,
     file: Mutex<File>,
@@ -104,7 +105,7 @@ pub struct IDB {
 }
 
 #[allow(dead_code)]
-impl IDB {
+impl Idb {
     pub(crate) fn page_size(&self) -> u64 {
         self.page_size
     }
@@ -114,7 +115,7 @@ impl IDB {
 
         let mmap = unsafe { Mmap::map(&file)? };
 
-        let db = IDB {
+        let db = Idb {
             mmap: Arc::new(mmap),
             page_size,
             file: Mutex::new(file),
@@ -163,23 +164,27 @@ impl IDB {
         for i in 0..4 {
             let page =
                 unsafe { &mut *(&mut buf[(i * page_size) as usize] as *mut u8 as *mut Page) };
-            if i < 2 {
-                page.page_type = Page::META_PAGE;
-                page.id = i;
-                let m = page.meta_mut()?;
-                // must before init
-                m.free_list = 2;
-                m.num_pages = 4;
-                m.init(i);
-            } else if i == 2 {
-                // init free list
-                page.id = 2;
-                page.page_type = Page::FREE_LIST_PAGE;
-                page.count = 0;
-            } else {
-                page.id = 3;
-                page.page_type = Page::LEAF_PAGE;
-                page.count = 0;
+            match i.cmp(&2) {
+                CmpOrdering::Less => {
+                    page.page_type = Page::META_PAGE;
+                    page.id = i;
+                    let m = page.meta_mut()?;
+                    // must before init
+                    m.free_list = 2;
+                    m.num_pages = 4;
+                    m.init(i);
+                }
+                CmpOrdering::Equal => {
+                    // init free list
+                    page.id = 2;
+                    page.page_type = Page::FREE_LIST_PAGE;
+                    page.count = 0;
+                }
+                CmpOrdering::Greater => {
+                    page.id = 3;
+                    page.page_type = Page::LEAF_PAGE;
+                    page.count = 0;
+                }
             }
         }
         file.write_all(&buf[..])?;
@@ -208,7 +213,7 @@ impl IDB {
 }
 
 impl Deref for DB {
-    type Target = IDB;
+    type Target = Idb;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -231,14 +236,6 @@ mod tests {
     use crate::data::RawPtr;
 
     use super::*;
-    #[test]
-    fn test_page() {
-        let db = DB::open("./tests/test.db").unwrap();
-        let p = Page::from_buf(&db.mmap, 30, db.page_size);
-        let mut p = RawPtr::new(p);
-        let p = &mut *p;
-        p.page_type = 1;
-    }
     #[test]
     fn test_b() {
         unsafe {

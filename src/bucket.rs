@@ -38,7 +38,9 @@ impl Bucket {
     pub(crate) const FLAG: u32 = 1;
 
     pub fn tx(&self) -> Result<Transaction> {
-        self.tx.upgrade().ok_or(RoltError::TxNotValid.into())
+        self.tx
+            .upgrade()
+            .ok_or_else(|| RoltError::TxNotValid.into())
     }
 
     pub fn new(tx: WeakTransaction) -> Self {
@@ -119,7 +121,7 @@ impl Bucket {
     // get sub-bucket
     fn open_bucket(&self, bytes: &[u8]) -> Bucket {
         let mut child = Bucket::new(self.tx.clone());
-        child.bucket = unsafe { (&*(bytes.as_ptr() as *const IBucket)).clone() };
+        child.bucket = unsafe { *(bytes.as_ptr() as *const IBucket) };
         // sub-bucket is inline
         if child.bucket.root == 0 {
             let slice = &bytes[IBucket::SIZE..];
@@ -176,12 +178,10 @@ impl Bucket {
             }
             if let Some(ref root) = self.root {
                 Ok(PageNode::from(root.clone()))
+            } else if let Some(ref page) = self.page {
+                Ok(PageNode::from(page.clone()))
             } else {
-                if let Some(ref page) = self.page {
-                    Ok(PageNode::from(page.clone()))
-                } else {
-                    Err!(RoltError::PageEmpty)
-                }
+                Err!(RoltError::PageEmpty)
             }
         } else if let Some(node) = self.nodes.get(&id) {
             Ok(PageNode::from(node.clone()))
@@ -207,7 +207,7 @@ impl Bucket {
                 child.spill()?;
                 unsafe {
                     let bytes = struct_to_slice(&child.bucket);
-                    bytes.clone().to_vec()
+                    bytes.to_vec()
                 }
             };
 
@@ -255,7 +255,7 @@ impl Bucket {
         // panic if it is not writable
         assert!(self.tx().unwrap().writable());
 
-        let mut node = Node::new(RawPtr::new(&self), crate::node::NodeType::Leaf);
+        let mut node = Node::new(RawPtr::new(self), crate::node::NodeType::Leaf);
 
         // node crated
         if let Some(n) = self.nodes.get(&page_id) {
