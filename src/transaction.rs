@@ -257,6 +257,11 @@ impl ITransaction {
 // drop for RC<> will called when a reference is dropped
 impl Drop for Transaction {
     fn drop(&mut self) {
+        // panic happened
+        if std::thread::panicking() {
+            self.rollback().unwrap();
+            return;
+        }
         // one owned by user
         if Rc::strong_count(&self.0) > 1 {
             return;

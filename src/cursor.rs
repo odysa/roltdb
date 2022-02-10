@@ -42,7 +42,7 @@ impl<'a> Cursor<'a> {
         });
         // look for the first leaf node
         self.first_leaf()?;
-        //
+
         let pair = self.kv_pair()?;
 
         Ok(pair)
@@ -136,6 +136,7 @@ impl<'a> Cursor<'a> {
         // if target is found
         let stack = self.stack.borrow();
         let elem = stack.last().ok_or(anyhow!(RoltError::StackEmpty))?;
+        // target probably not found
         if elem.index >= elem.count() {
             Ok(KVPair::null())
         } else {
@@ -163,6 +164,7 @@ impl<'a> Cursor<'a> {
 
         Ok(())
     }
+
     // find target key in a page
     fn search_page(&mut self, target: &[u8], p: &Page) -> Result<()> {
         let branches = p.branch_elements()?;
